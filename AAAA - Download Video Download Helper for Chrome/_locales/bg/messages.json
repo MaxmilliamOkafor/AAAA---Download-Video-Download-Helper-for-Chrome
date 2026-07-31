@@ -1,0 +1,392 @@
+{
+  "appDesc": {
+    "message": "Сваляне на видео от мрежата"
+  },
+  "restore_purchase_button": {
+    "message": "Възстановяване на покупката"
+  },
+  "get_premium_button": {
+    "message": "Вземи премиум достъп"
+  },
+  "back": {
+    "message": "Назад"
+  },
+  "rm_notifications_all": {
+    "message": "Премахни всички уведомления"
+  },
+  "waiting_for_media": {
+    "message": "Изчакване за медия"
+  },
+  "nomedia_title": {
+    "message": "Не виждате медията която търсете?"
+  },
+  "nomedia_description": {
+    "message": "Стартирайте видеото (и пропуснете рекламите, ако има такива), за да помогнете за откриването на медията. Или съобщете за липсваща медия."
+  },
+  "nomedia_reload_button": {
+    "message": "Принудително засичане"
+  },
+  "nomedia_reload_button_tooltip": {
+    "message": "Принудително презареждане на страницата"
+  },
+  "show_nomedia_button": {
+    "message": "Няма видео"
+  },
+  "show_nomedia_button_tooltip": {
+    "message": "Кликни тук ако не намираш видео"
+  },
+  "setting_button_tooltip": {
+    "message": "Настройки"
+  },
+  "history_button_tooltip": {
+    "message": "Покажи история на сваляне"
+  },
+  "show_all_history_button": {
+    "message": "Покажи всички"
+  },
+  "complete_title": {
+    "message": "Завършено"
+  },
+  "hide_complete_button": {
+    "message": "Скрий"
+  },
+  "translate_button_tooltip": {
+    "message": "Помогнете за превода на VDH"
+  },
+  "help_button_tooltip": {
+    "message": "Помощ"
+  },
+  "open_source_tab_button_tooltip": {
+    "message": "Отвори основен раздел"
+  },
+  "retry_download_button_tooltip": {
+    "message": "Свали отново"
+  },
+  "delete_file_button_tooltip": {
+    "message": "Изтрий файл"
+  },
+  "download_directory_button_tooltip": {
+    "message": "Покажи папката за изтегляне"
+  },
+  "clear_downloaded_tooltip": {
+    "message": "Изчисти напълно свалените"
+  },
+  "show_in_popup_button_tooltip": {
+    "message": "Покажи в изскачащ прозорец"
+  },
+  "show_in_sidebar_button_tooltip": {
+    "message": "Покажи в страничната лента"
+  },
+  "video_not_playing_button_tooltip": {
+    "message": "Видеото не се стартира?"
+  },
+  "play": {
+    "message": "Пусни"
+  },
+  "warn_drm_tooltip": {
+    "message": "Засечен DRM"
+  },
+  "version_title": {
+    "message": "Версия"
+  },
+  "account_title": {
+    "message": "Профил"
+  },
+  "one_hundred_downloads_title": {
+    "message": "Вие свалихте 100 видеа"
+  },
+  "leave_review_description": {
+    "message": "Надяваме се, че ви харесва VDH :) Бихте ли написали хубаво ревю за уебсайта на добавката?"
+  },
+  "leave_review_button": {
+    "message": "Оставете оценка"
+  },
+  "account_status": {
+    "message": "Статус"
+  },
+  "account_status_premium": {
+    "message": "Премиум ($1)"
+  },
+  "free_account": {
+    "message": "Безплатен план"
+  },
+  "copy_to_clipboard": {
+    "message": "Копирай информацията в клипборда"
+  },
+  "my_account_button": {
+    "message": "Моят профил"
+  },
+  "download_title": {
+    "message": "Свалени"
+  },
+  "show_notification": {
+    "message": "Покажи уведомление след сваляне"
+  },
+  "max_parallel_downloads": {
+    "message": "Максимален брой едновременни изтегляния"
+  },
+  "saveas_detected_warning": {
+    "message": "Установихме, че браузърът ви показва диалогов прозорец „Запазване като“, след като изтеглянето приключи. Препоръчваме ви да деактивирате тази опция в настройките на браузъра си."
+  },
+  "change_saveas_setting": {
+    "message": "Промени настройки"
+  },
+  "download_directory_title": {
+    "message": "Директория на сваляне"
+  },
+  "download_directory_description": {
+    "message": "Видеоклиповете се изтеглят в директорията за изтегляне на браузъра по подразбиране. Можете също да укажете поддиректория. Директориите за изтегляне, специфични за уебсайта, могат да бъдат зададени с инструмента за интелигентно именуване."
+  },
+  "change_browser_download_directory": {
+    "message": "Промяна на директорията за изтегляне на браузъра"
+  },
+  "bad_download_subdirectory_warning": {
+    "message": "Посочената от вас поддиректория е невалидна."
+  },
+  "download_subdirectory": {
+    "message": "Поддиректория за сваляне"
+  },
+  "private_browsing_title": {
+    "message": "Частно сърфиране"
+  },
+  "private_browsing_warning": {
+    "message": "VDH не е активиран в частен/инкогнито прозорец. Трябва да включите тази опция ръчно (това не е задължително)."
+  },
+  "private_browsing_notifications": {
+    "message": "Покажи уведомление за частни изтегляния"
+  },
+  "private_browsing_button": {
+    "message": "Промени настройки на частно сърфиране"
+  },
+  "throttle_youtube": {
+    "message": "\"Потискам Ютюб\" (по-бавни изтегляния, но по-малка вероятност от блокиране) "
+  },
+  "prefer_original_audio": {
+    "message": "Предпочитам оригинално аудио"
+  },
+  "settings_history_title": {
+    "message": "История"
+  },
+  "transient_history_description": {
+    "message": "Покажи завършените сваляния в панела"
+  },
+  "history_limit": {
+    "message": "Забравете историята на изтеглянията след X дни"
+  },
+  "appearance_title": {
+    "message": "Външен вид"
+  },
+  "theme_title": {
+    "message": "Тема"
+  },
+  "theme_light": {
+    "message": "Светло"
+  },
+  "theme_dark": {
+    "message": "Тъмно"
+  },
+  "theme_system": {
+    "message": "Система"
+  },
+  "popup_size_title": {
+    "message": "Размер на прозореца"
+  },
+  "popup_size_small": {
+    "message": "Малък"
+  },
+  "popup_size_medium": {
+    "message": "Среден"
+  },
+  "popup_size_big": {
+    "message": "Голям"
+  },
+  "font_size_title": {
+    "message": "Размер на текста"
+  },
+  "font_size_default": {
+    "message": "Подразбиране"
+  },
+  "font_size_large": {
+    "message": "Уголемен"
+  },
+  "font_size_verylarge": {
+    "message": "Много уголемен"
+  },
+  "panel_position_title": {
+    "message": "Позиция на панела"
+  },
+  "use_popup": {
+    "message": "Покажи в изскачащо известие"
+  },
+  "use_sidebar": {
+    "message": "Покажи в страничната лента"
+  },
+  "behavior_title": {
+    "message": "Поведение"
+  },
+  "controls_title": {
+    "message": "Контроли"
+  },
+  "show_in_context_menu": {
+    "message": "Достъп до команди чрез щракване с десния бутон на мишката върху страницата"
+  },
+  "restart_addon": {
+    "message": "Презареди добавката"
+  },
+  "reset_settings": {
+    "message": "Нулиране на настройките"
+  },
+  "prefered_quality": {
+    "message": "Предпочитано качество на видео"
+  },
+  "prefered_quality_highest": {
+    "message": "Най-високо (бавно изтегляне, висока резолюция)"
+  },
+  "prefered_quality_1080p": {
+    "message": "1080p (добро по подразбиране)"
+  },
+  "prefered_quality_720p": {
+    "message": "720p (бързо изтегляне, ниска резолюция)"
+  },
+  "prefered_quality_480p": {
+    "message": "480p (по-бързо изтегляне, по-ниска резолюция)"
+  },
+  "prefer_mkv": {
+    "message": "Свали като MKV ако е възможно"
+  },
+  "preview_mode_title": {
+    "message": "Преглед на медийното съдържание"
+  },
+  "preview_mode_none": {
+    "message": "Неспособен"
+  },
+  "preview_mode_video": {
+    "message": "Кратко преглеждане на видеото"
+  },
+  "preview_mode_image": {
+    "message": "Изображение"
+  },
+  "media_discovered_ordering_title": {
+    "message": "Стратегия за сортиране на медии"
+  },
+  "order_media_smart": {
+    "message": "Умно (Препоръчително)"
+  },
+  "order_media_by_newest": {
+    "message": "Първо новите"
+  },
+  "order_media_by_oldest": {
+    "message": "Първо старите"
+  },
+  "history_title": {
+    "message": "История на изтеглянията"
+  },
+  "history_warning": {
+    "message": "Ние не записваме историята на изтеглянията ви. Искате ли VDH да запомни историята на изтеглянията ви?"
+  },
+  "history_warning_2": {
+    "message": "Не се притеснявайте, всичко остава на вашата машина. Ние ценим вашата поверителност."
+  },
+  "enable_history": {
+    "message": "Позволи история"
+  },
+  "clear_history": {
+    "message": "Изчисти история"
+  },
+  "disable_history": {
+    "message": "Не запомняй моята история"
+  },
+  "no_downloads_yet": {
+    "message": "Все още няма записи."
+  },
+  "download_failed": {
+    "message": "Свалянето се провали"
+  },
+  "download_failed_description": {
+    "message": "За съжаление не успяхме да изтеглим този конкретен медиен файл. Стараем се да поддържаме колкото се може повече уебсайтове, така че ще ни помогне много, ако можете да съобщите за тази грешка (анонимно е!)."
+  },
+  "download_interrupted": {
+    "message": "Свалянето е прекъснато"
+  },
+  "download_interrupted_description": {
+    "message": "Успяхме да изтеглим файла ви, но имаше проблеми с мрежата, така че файлът може да е по-кратък от очакваното. Стараем се да поддържаме колкото се може повече уебсайтове, така че ще ни помогне много, ако можете да съобщите за този проблем (анонимно е!)."
+  },
+  "download_with_drm_failed_description": {
+    "message": "Нещо не сработи. И смятаме, че това видео има DRM. Не поддържаме видеоклипове с DRM."
+  },
+  "no_youtube": {
+    "message": "Сваляния от Ютюб не са позволени"
+  },
+  "no_youtube_description": {
+    "message": "За съжаление, уеб магазинът на Хром не позволява разширения за изтегляне на видеоклипове от Ютюб, така че не успяхме да включим тази функция във версията на разширението за Хром."
+  },
+  "no_youtube_description_2": {
+    "message": "Моля, използвайте Firefox или Microsoft Edge"
+  },
+  "premium_required": {
+    "message": "Нужен е премиум статус"
+  },
+  "premium_yt_required_description": {
+    "message": "Без Премиум статус, изтегляне от Ютюб може да се извърши само 2 часа след предишното."
+  },
+  "premium_hls_required_description": {
+    "message": "Без Премиум статус, изтегляне на HLS или MPD може да се извърши само 2 часа след предишното."
+  },
+  "premium_all_required_description": {
+    "message": "Без Премиум статус, изтеглянето може да се извърши само 2 часа след предишното"
+  },
+  "youtube_too_many_downloads": {
+    "message": "Опа, изглежда Ютюб е блокиран"
+  },
+  "youtube_too_many_downloads_description": {
+    "message": "Понякога Ютюб ограничава броя на заявените видеоклипове. За съжаление не можем да направим нищо по въпроса. Опитайте отново по-късно."
+  },
+  "stop": {
+    "message": "Стоп"
+  },
+  "cancel": {
+    "message": "Отмяна"
+  },
+  "copy_url": {
+    "message": "Копирай URL адрес"
+  },
+  "always_copy_url": {
+    "message": "Винаги копирай URL"
+  },
+  "download_button": {
+    "message": "Сваляне"
+  },
+  "download_as_button_and_menu": {
+    "message": "Свали като..."
+  },
+  "rename_short": {
+    "message": "Преименувай"
+  },
+  "always_download_as_menu": {
+    "message": "Винаги сваляй като..."
+  },
+  "download_audio_button": {
+    "message": "Аудио"
+  },
+  "download_audio_and_video_menu": {
+    "message": "Свали Аудио и Видео"
+  },
+  "download_audio_only_menu": {
+    "message": "Свали Аудио"
+  },
+  "audio_only_for_this_website": {
+    "message": "Винаги само Аудио от този сайт"
+  },
+  "details": {
+    "message": "Детайли"
+  },
+  "report": {
+    "message": "Доклад"
+  },
+  "reporting": {
+    "message": "Докладване..."
+  },
+  "reported_thankyou": {
+    "message": "Благодарим Ви!"
+  }
+}

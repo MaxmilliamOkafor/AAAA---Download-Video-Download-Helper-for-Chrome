@@ -1,0 +1,326 @@
+{
+  "appDesc": {
+    "message": "تحميل مقاطع الفيديو من الويب."
+  },
+  "restore_purchase_button": {
+    "message": "استعادة عملية الشراء"
+  },
+  "get_premium_button": {
+    "message": "احصل على النسخة المميزة"
+  },
+  "back": {
+    "message": "رجوع"
+  },
+  "waiting_for_media": {
+    "message": "في انتظار الوسائط…"
+  },
+  "nomedia_title": {
+    "message": "لا ترى الوسائط التي تبحث عنها؟"
+  },
+  "nomedia_description": {
+    "message": "ابدأ تشغيل الفيديو (وتجاوز الإعلانات إن وجدت) للمساعدة في اكتشاف الوسائط. أو أبلغ عن وسائط مفقودة."
+  },
+  "nomedia_reload_button": {
+    "message": "إعادة الكشف"
+  },
+  "nomedia_reload_button_tooltip": {
+    "message": "إعادة تحميل الصفحة (مسح ملفات تعريف الارتباط)"
+  },
+  "show_nomedia_button": {
+    "message": "لا يوجد فيديو؟"
+  },
+  "show_nomedia_button_tooltip": {
+    "message": "اضغط هنا إذا لم تتمكن من العثور على الفيديو"
+  },
+  "setting_button_tooltip": {
+    "message": "الإعدادات"
+  },
+  "history_button_tooltip": {
+    "message": "عرض سجل التحميل"
+  },
+  "show_all_history_button": {
+    "message": "عرض الكل"
+  },
+  "complete_title": {
+    "message": "مكتمل"
+  },
+  "hide_complete_button": {
+    "message": "إخفاء"
+  },
+  "translate_button_tooltip": {
+    "message": "ساعد في ترجمة VDH"
+  },
+  "open_source_tab_button_tooltip": {
+    "message": "فتح تبويب المصدر"
+  },
+  "retry_download_button_tooltip": {
+    "message": "إعادة محاولة التحميل"
+  },
+  "delete_file_button_tooltip": {
+    "message": "حذف الملف"
+  },
+  "download_directory_button_tooltip": {
+    "message": "عرض مجلد التحميل"
+  },
+  "clear_downloaded_tooltip": {
+    "message": "مسح التحميلات المكتملة"
+  },
+  "show_in_popup_button_tooltip": {
+    "message": "عرض في نافذة منبثقة"
+  },
+  "show_in_sidebar_button_tooltip": {
+    "message": "عرض في الشريط الجانبي"
+  },
+  "video_not_playing_button_tooltip": {
+    "message": "الفيديو لا يعمل؟"
+  },
+  "play": {
+    "message": "تشغيل"
+  },
+  "warn_drm_tooltip": {
+    "message": "تم الكشف عن DRM"
+  },
+  "version_title": {
+    "message": "الإصدار"
+  },
+  "account_title": {
+    "message": "الحساب"
+  },
+  "one_hundred_downloads_title": {
+    "message": "لقد قمت بتحميل 100 فيديو!"
+  },
+  "leave_review_description": {
+    "message": "نأمل أن تستمتع بـ Video Download Helper :) هل تمانع في كتابة مراجعة لطيفة على موقع الإضافة؟"
+  },
+  "leave_review_button": {
+    "message": "اترك مراجعة"
+  },
+  "account_status": {
+    "message": "الحالة"
+  },
+  "account_status_premium": {
+    "message": "مميز ($1)"
+  },
+  "free_account": {
+    "message": "خطة مجانية"
+  },
+  "copy_to_clipboard": {
+    "message": "نسخ المعلومات إلى الحافظة"
+  },
+  "my_account_button": {
+    "message": "حسابي"
+  },
+  "download_title": {
+    "message": "التحميلات"
+  },
+  "show_notification": {
+    "message": "إظهار إشعار عند اكتمال التحميل"
+  },
+  "max_parallel_downloads": {
+    "message": "الحد الأقصى للتحميلات المتزامنة"
+  },
+  "saveas_detected_warning": {
+    "message": "تم اكتشاف أن متصفحك يعرض نافذة 'حفظ باسم' بعد اكتمال التحميل. نوصي بتعطيل هذا الخيار من إعدادات المتصفح."
+  },
+  "change_saveas_setting": {
+    "message": "تغيير الإعداد"
+  },
+  "private_browsing_title": {
+    "message": "التصفح الخاص"
+  },
+  "private_browsing_warning": {
+    "message": "Video Download Helper غير مفعّل في نوافذ التصفح الخاص/المتخفي. تحتاج لتفعيل هذا الخيار يدويًا (اختياري)."
+  },
+  "private_browsing_notifications": {
+    "message": "عرض إشعارات التحميل في الوضع الخاص"
+  },
+  "private_browsing_button": {
+    "message": "تغيير إعدادات التصفح الخاص"
+  },
+  "throttle_youtube": {
+    "message": "إبطاء التحميل من يوتيوب (أبطأ ولكن أقل عرضة للحظر)"
+  },
+  "prefer_original_audio": {
+    "message": "تفضيل الصوت الأصلي"
+  },
+  "settings_history_title": {
+    "message": "السجل"
+  },
+  "transient_history_description": {
+    "message": "عرض التحميلات المكتملة في اللوحة"
+  },
+  "history_limit": {
+    "message": "نسيان سجل التحميل بعد X يوم"
+  },
+  "appearance_title": {
+    "message": "المظهر"
+  },
+  "theme_title": {
+    "message": "السمة"
+  },
+  "theme_light": {
+    "message": "فاتح"
+  },
+  "theme_dark": {
+    "message": "داكن"
+  },
+  "theme_system": {
+    "message": "النظام"
+  },
+  "popup_size_title": {
+    "message": "حجم النافذة"
+  },
+  "popup_size_small": {
+    "message": "صغير"
+  },
+  "popup_size_medium": {
+    "message": "متوسط"
+  },
+  "popup_size_big": {
+    "message": "كبير"
+  },
+  "panel_position_title": {
+    "message": "موضع اللوحة"
+  },
+  "use_popup": {
+    "message": "عرض في نافذة منبثقة"
+  },
+  "use_sidebar": {
+    "message": "عرض في الشريط الجانبي"
+  },
+  "behavior_title": {
+    "message": "السلوك"
+  },
+  "controls_title": {
+    "message": "عناصر التحكم"
+  },
+  "show_in_context_menu": {
+    "message": "الوصول إلى الأوامر من قائمة النقر بالزر الأيمن"
+  },
+  "restart_addon": {
+    "message": "إعادة تحميل الإضافة"
+  },
+  "reset_settings": {
+    "message": "إعادة تعيين الإعدادات"
+  },
+  "prefer_mkv": {
+    "message": "تحميل بصيغة MKV إن أمكن"
+  },
+  "preview_mode_title": {
+    "message": "معاينة لوسائط"
+  },
+  "preview_mode_none": {
+    "message": "معطل"
+  },
+  "preview_mode_video": {
+    "message": "معاينة فيديو قصيرة"
+  },
+  "preview_mode_image": {
+    "message": "صورة"
+  },
+  "history_title": {
+    "message": "سجل التحميل"
+  },
+  "history_warning": {
+    "message": "نحن لا نسجل سجل تحميلاتك. هل ترغب في أن يحتفظ Video Download Helper بسجل تحميلاتك؟"
+  },
+  "history_warning_2": {
+    "message": "لا تقلق، كل شيء يبقى على جهازك. نحن نحترم خصوصيتك."
+  },
+  "enable_history": {
+    "message": "تفعيل السجل"
+  },
+  "clear_history": {
+    "message": "مسح السجل"
+  },
+  "disable_history": {
+    "message": "عدم حفظ السجل"
+  },
+  "no_downloads_yet": {
+    "message": "لا توجد تحميلات بعد."
+  },
+  "download_failed": {
+    "message": "فشل التحميل"
+  },
+  "download_failed_description": {
+    "message": "للأسف، لم نتمكن من تحميل هذا الوسيط. نحن نحاول دعم أكبر عدد ممكن من المواقع، لذا سيكون من المفيد الإبلاغ عن هذا الخطأ (بشكل مجهول)."
+  },
+  "download_interrupted": {
+    "message": "تم قطع التحميل"
+  },
+  "download_interrupted_description": {
+    "message": "تم تحميل الملف جزئيًا بسبب مشاكل في الشبكة. قد يكون أقصر من المتوقع. يمكنك الإبلاغ عن المشكلة (بشكل مجهول)."
+  },
+  "download_with_drm_failed_description": {
+    "message": "حدث خطأ ما. ونعتقد أن هذا الفيديو يحتوي على DRM. نحن لا ندعم مقاطع الفيديو المحمية بـ DRM."
+  },
+  "no_youtube": {
+    "message": "التحميل من يوتيوب غير مسموح"
+  },
+  "no_youtube_description": {
+    "message": "لسوء الحظ، متجر Chrome Web Store لا يسمح بإضافات لتحميل مقاطع YouTube، لذلك لم نتمكن من تضمين هذه الميزة في نسخة Chrome."
+  },
+  "no_youtube_description_2": {
+    "message": "يرجى استخدام Firefox أو Microsoft Edge."
+  },
+  "premium_required": {
+    "message": "يتطلب حساب مميز"
+  },
+  "premium_yt_required_description": {
+    "message": "بدون الحساب المميز، يمكن تحميل فيديو YouTube واحد فقط كل ساعتين."
+  },
+  "premium_hls_required_description": {
+    "message": "بدون الحساب المميز، يمكن تحميل فيديو HLS أو MPD واحد فقط كل ساعتين."
+  },
+  "youtube_too_many_downloads": {
+    "message": "يبدو أن التحميل من يوتيوب محظور مؤقتًا"
+  },
+  "youtube_too_many_downloads_description": {
+    "message": "أحيانًا يفرض YouTube قيودًا على عدد الفيديوهات المطلوبة. للأسف لا يمكننا فعل شيء. حاول لاحقًا."
+  },
+  "stop": {
+    "message": "إيقاف"
+  },
+  "cancel": {
+    "message": "إلغاء"
+  },
+  "copy_url": {
+    "message": "نسخ الرابط"
+  },
+  "always_copy_url": {
+    "message": "دائمًا انسخ الرابط"
+  },
+  "download_button": {
+    "message": "تحميل"
+  },
+  "download_as_button_and_menu": {
+    "message": "تحميل كـ…"
+  },
+  "rename_short": {
+    "message": "إعادة تسمية"
+  },
+  "always_download_as_menu": {
+    "message": "دائمًا تحميل كـ…"
+  },
+  "download_audio_button": {
+    "message": "صوت"
+  },
+  "download_audio_and_video_menu": {
+    "message": "تحميل صوت وفيديو"
+  },
+  "download_audio_only_menu": {
+    "message": "تحميل الصوت فقط"
+  },
+  "audio_only_for_this_website": {
+    "message": "دائمًا صوت فقط لهذا الموقع"
+  },
+  "details": {
+    "message": "التفاصيل"
+  },
+  "report": {
+    "message": "إبلاغ"
+  },
+  "reporting": {
+    "message": "جاري الإبلاغ…"
+  }
+}
