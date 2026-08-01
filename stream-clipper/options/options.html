@@ -28,6 +28,12 @@
             <option value="15">15 minutes</option>
             <option value="20">20 minutes</option>
             <option value="30">30 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+            <option value="240">4 hours</option>
           </select>
         </label>
         <label>
@@ -38,17 +44,23 @@
             <option value="900">900 MB</option>
             <option value="1500">1.5 GB</option>
             <option value="2500">2.5 GB</option>
+            <option value="4000">4 GB</option>
+            <option value="6000">6 GB</option>
+            <option value="8000">8 GB</option>
+            <option value="12000">12 GB</option>
+            <option value="16000">16 GB</option>
           </select>
         </label>
       </div>
+      <p id="buffer-estimate" class="desc warn" style="margin: 14px 0 0"></p>
     </section>
 
     <section class="card">
       <h2>Clipping</h2>
       <div class="grid">
         <label>
-          <span>Quick-clip buttons <em>(seconds, comma-separated, up to 6)</em></span>
-          <input id="clipPresets" type="text" placeholder="30, 60, 120, 300" />
+          <span>Quick-clip buttons <em>(up to 6 — use s / m / h, e.g. 30s, 1m, 5m, 30m, 1h)</em></span>
+          <input id="clipPresets" type="text" placeholder="30s, 1m, 5m, 10m, 30m, 1h" />
         </label>
         <label>
           <span>Keyboard-shortcut clip length <em>(Alt+C)</em></span>
@@ -82,8 +94,49 @@
     </section>
 
     <section class="card">
-      <h2>Capture quality</h2>
-      <p class="desc">Capture quality can never exceed what the player renders — set the stream to its highest quality (1080p60, 4K…) for best results.</p>
+      <h2>Capture mode</h2>
+      <p class="desc">
+        <strong>Source</strong> buffers the broadcaster's own video segments — the exact bytes the CDN
+        sends, with no decoding or re-encoding, so clips match the broadcast quality. It also grabs the
+        stream's best rendition regardless of the quality you're watching at, so you can watch in 720p to
+        save bandwidth and still clip in 1080p60. It needs the site to use HLS (Twitch and Kick always do).
+        <strong>Tab</strong> records what the tab renders — it works on every site, but re-encodes.
+      </p>
+      <p class="desc warn">
+        <strong>Bandwidth:</strong> source mode downloads the stream a second time, in parallel with the
+        player, so it roughly doubles your usage — and buffering a rendition higher than the one you're
+        watching costs more still. If your connection is tight and the stream stutters while monitoring,
+        lower the cap below or switch to tab mode.
+      </p>
+      <div class="grid">
+        <label>
+          <span>Mode</span>
+          <select id="captureMode">
+            <option value="auto">Auto — source quality when available, otherwise tab (recommended)</option>
+            <option value="source">Source only — never re-encode (fails if unavailable)</option>
+            <option value="tab">Tab only — always record rendered video</option>
+          </select>
+        </label>
+        <label>
+          <span>Source quality cap <em>(bounds bandwidth and file size)</em></span>
+          <select id="sourceHeightCap">
+            <option value="1080">Up to 1080p (recommended)</option>
+            <option value="720">Up to 720p — lightest on bandwidth</option>
+            <option value="1440">Up to 1440p</option>
+            <option value="2160">Up to 4K</option>
+            <option value="0">Always the stream's best — highest bandwidth</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tab-capture quality</h2>
+      <p class="desc">These apply only when recording rendered video (tab mode). Source mode ignores them — it never re-encodes, and always captures the video alone. In tab mode, quality can't exceed what the player shows, so set the stream to its highest quality first.</p>
+      <label class="check" style="margin-top: 0; margin-bottom: 14px">
+        <input id="cropToVideo" type="checkbox" />
+        <span>Record the player only — crop out chat, sidebar and page chrome (also removes letterbox bars, and spends the whole bitrate on video)</span>
+      </label>
       <div class="grid">
         <label>
           <span>Resolution cap</span>
@@ -130,6 +183,21 @@
           </select>
         </label>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Advertising</h2>
+      <p class="desc">
+        Mid-roll ads never reach your clips. In source mode StreamClip reads the ad markers in the
+        stream's own playlist and skips those segments entirely — they are never downloaded, so ads
+        cost you no bandwidth either. In tab mode it watches the player's ad indicator and drops the
+        footage recorded during the break, so a clip cuts straight from pre-ad content to where the
+        stream resumed.
+      </p>
+      <label class="check">
+        <input id="excludeAds" type="checkbox" />
+        <span>Keep advertising out of clips (recommended)</span>
+      </label>
     </section>
 
     <section class="card">

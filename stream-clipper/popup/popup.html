@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>StreamClip Pro</title>
@@ -8,18 +8,25 @@
 <body>
   <header class="header">
     <div class="brand">
-      <img src="../icons/icon32.png" alt="" width="20" height="20" />
-      <span>StreamClip&nbsp;Pro</span>
+      <img src="../icons/icon32.png" alt="" width="22" height="22" />
+      <span class="brand-text">
+        <span class="brand-name">StreamClip Pro</span>
+        <span class="brand-sub" id="brand-sub">Replay buffer idle</span>
+      </span>
     </div>
     <div class="header-actions">
-      <button id="clip-all" class="btn btn-ghost" title="Clip every monitored stream (Alt+Shift+C)" hidden>⚡ Clip all</button>
-      <button id="open-options" class="icon-btn" title="Settings">⚙</button>
+      <button id="clip-all" class="btn btn-ghost" hidden>⚡ Clip all</button>
+      <button id="open-options" class="icon-btn" title="Settings" aria-label="Open settings">⚙</button>
     </div>
   </header>
 
-  <nav class="tabs">
-    <button id="tab-streams" class="tab active">Streams</button>
-    <button id="tab-history" class="tab">Clip history</button>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button id="tab-streams" class="tab active" role="tab" aria-selected="true" aria-controls="sessions">
+      Streams<span class="tab-count" id="streams-count" hidden></span>
+    </button>
+    <button id="tab-history" class="tab" role="tab" aria-selected="false" aria-controls="history-view">
+      Clips<span class="tab-count" id="history-badge" hidden></span>
+    </button>
   </nav>
 
   <section id="current-tab" class="current-tab" hidden>
@@ -27,66 +34,75 @@
       <span id="current-site" class="site-chip"></span>
       <span id="current-title" class="tab-title"></span>
     </div>
-    <button id="start-current" class="btn btn-primary">● Start monitoring</button>
+    <button id="start-current" class="btn btn-primary">Start monitoring</button>
   </section>
 
-  <div id="error" class="error" hidden></div>
+  <div id="error" class="error" role="alert" hidden></div>
 
-  <section id="sessions"></section>
+  <section id="sessions" role="tabpanel" aria-labelledby="tab-streams"></section>
 
   <div id="empty" class="empty" hidden>
-    <p><strong>No streams monitored yet.</strong></p>
-    <p>Open a Twitch, Kick or YouTube stream and press <em>Start monitoring</em>.
-       StreamClip keeps a rolling buffer while you watch — when something great
-       happens, click a clip button and the last N seconds are saved instantly.</p>
-    <p class="hint">Shortcut: <kbd>Alt</kbd>+<kbd>C</kbd> clips the current tab. Nothing is ever saved unless you ask.</p>
+    <div class="empty-icon" aria-hidden="true">🎬</div>
+    <h3>No streams monitored</h3>
+    <p>Open a Twitch, Kick or YouTube stream and start monitoring. StreamClip keeps a rolling buffer while you watch, so you can save a moment after it happens.</p>
+    <p class="hint"><kbd>Alt</kbd>+<kbd>C</kbd> clips instantly · nothing is saved unless you ask</p>
   </div>
 
-  <section id="history-view" hidden>
+  <section id="history-view" role="tabpanel" aria-labelledby="tab-history" hidden>
     <div class="history-toolbar">
       <span id="history-count" class="history-count"></span>
       <button id="clear-history" class="btn btn-ghost">Clear list</button>
     </div>
     <div id="history-list"></div>
     <div id="history-empty" class="empty" hidden>
-      <p><strong>No clips yet.</strong></p>
-      <p>Saved clips appear here with a shortcut to their file.</p>
+      <div class="empty-icon" aria-hidden="true">📁</div>
+      <h3>No clips yet</h3>
+      <p>Saved clips appear here with a shortcut to the file.</p>
     </div>
   </section>
 
-  <template id="history-item-template">
-    <div class="history-item">
-      <div class="history-main">
-        <span class="site-chip"></span>
-        <span class="history-name"></span>
-      </div>
-      <div class="history-meta"></div>
-      <button class="btn btn-ghost show-file" title="Reveal the file in your file manager">📂 Show file</button>
-    </div>
-  </template>
-
   <template id="session-template">
-    <div class="session">
+    <article class="session">
       <div class="session-head">
         <span class="site-chip"></span>
         <span class="session-name"></span>
-        <span class="rec-dot" title="Recording buffer">●</span>
-        <button class="icon-btn stop" title="Stop monitoring">✕</button>
+        <span class="rec-dot" title="Buffering" aria-hidden="true">●</span>
+        <button class="icon-btn stop" title="Stop monitoring" aria-label="Stop monitoring">✕</button>
       </div>
-      <div class="session-meta">
-        <span class="buffer-info"></span>
+      <div class="quality-row">
+        <span class="mode-badge"></span>
+        <span class="quality-line"></span>
       </div>
-      <div class="buffer-bar"><div class="buffer-fill"></div></div>
+      <div class="session-meta"><span class="buffer-info"></span></div>
+      <div class="ad-note" hidden></div>
+      <div class="buffer-bar" role="progressbar" aria-label="Buffer filled" aria-valuemin="0" aria-valuemax="100">
+        <div class="buffer-fill"></div>
+      </div>
       <div class="clip-row">
-        <span class="clip-label">Clip last:</span>
+        <span class="clip-label">Save the last</span>
         <div class="clip-buttons"></div>
       </div>
       <div class="custom-row">
-        <input class="custom-min" type="number" min="0" max="60" placeholder="min" />
-        <span>:</span>
-        <input class="custom-sec" type="number" min="0" max="59" placeholder="sec" />
-        <button class="btn btn-small custom-clip">Clip</button>
+        <label class="sr-only" for="cm">Minutes</label>
+        <input class="custom-min" id="cm" type="number" min="0" max="240" placeholder="min" aria-label="Minutes" />
+        <span aria-hidden="true">:</span>
+        <label class="sr-only" for="cs">Seconds</label>
+        <input class="custom-sec" id="cs" type="number" min="0" max="59" placeholder="sec" aria-label="Seconds" />
+        <button class="btn btn-ghost custom-clip">Clip</button>
       </div>
+    </article>
+  </template>
+
+  <template id="history-item-template">
+    <div class="history-item">
+      <div class="history-body">
+        <div class="history-main">
+          <span class="site-chip"></span>
+          <span class="history-name"></span>
+        </div>
+        <div class="history-meta"></div>
+      </div>
+      <button class="btn btn-ghost show-file" title="Reveal the file">Show file</button>
     </div>
   </template>
 
