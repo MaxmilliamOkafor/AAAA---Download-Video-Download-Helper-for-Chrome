@@ -28,6 +28,12 @@
             <option value="15">15 minutes</option>
             <option value="20">20 minutes</option>
             <option value="30">30 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+            <option value="240">4 hours</option>
           </select>
         </label>
         <label>
@@ -38,17 +44,23 @@
             <option value="900">900 MB</option>
             <option value="1500">1.5 GB</option>
             <option value="2500">2.5 GB</option>
+            <option value="4000">4 GB</option>
+            <option value="6000">6 GB</option>
+            <option value="8000">8 GB</option>
+            <option value="12000">12 GB</option>
+            <option value="16000">16 GB</option>
           </select>
         </label>
       </div>
+      <p id="buffer-estimate" class="desc warn" style="margin: 14px 0 0"></p>
     </section>
 
     <section class="card">
       <h2>Clipping</h2>
       <div class="grid">
         <label>
-          <span>Quick-clip buttons <em>(seconds, comma-separated, up to 6)</em></span>
-          <input id="clipPresets" type="text" placeholder="30, 60, 120, 300" />
+          <span>Quick-clip buttons <em>(up to 6 — use s / m / h, e.g. 30s, 1m, 5m, 30m, 1h)</em></span>
+          <input id="clipPresets" type="text" placeholder="30s, 1m, 5m, 10m, 30m, 1h" />
         </label>
         <label>
           <span>Keyboard-shortcut clip length <em>(Alt+C)</em></span>

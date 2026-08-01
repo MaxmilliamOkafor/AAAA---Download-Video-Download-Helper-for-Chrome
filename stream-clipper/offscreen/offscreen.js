@@ -366,12 +366,40 @@ function getStats(tabId) {
   const state = captures.get(tabId);
   if (!state) throw new Error("Not capturing this tab.");
   const oldest = state.chunks.length ? state.chunks[0].t : Date.now();
+  const bufferedSeconds = Math.round((Date.now() - oldest) / 1000);
+
+  // Report the dimensions actually being recorded: the cropped canvas when
+  // cropping is active, otherwise the raw capture track.
+  let width = 0;
+  let height = 0;
+  let frameRate = state.settings.frameRate;
+  if (state.cropper) {
+    const d = state.cropper.dimensions();
+    width = d.width;
+    height = d.height;
+  } else {
+    const track = state.stream.getVideoTracks()[0];
+    const ts = track ? track.getSettings() : {};
+    width = ts.width || 0;
+    height = ts.height || 0;
+    if (ts.frameRate) frameRate = Math.round(ts.frameRate);
+  }
+
   return {
-    bufferedSeconds: Math.round((Date.now() - oldest) / 1000),
+    mode: "tab",
+    bufferedSeconds,
     maxBufferSeconds: state.settings.bufferMinutes * 60,
     bufferedBytes: state.bytes,
     pendingClips: state.pendingClips.size,
     mimeType: state.recorder.mimeType,
+    width,
+    height,
+    frameRate,
+    codec: scpCodecLabel(state.recorder.mimeType),
+    cropped: !!state.cropper,
+    // Measured from real buffered data, so it reflects what will be saved
+    // rather than the configured target.
+    bitrateMbps: bufferedSeconds > 0 ? (state.bytes * 8) / bufferedSeconds / 1e6 : 0,
     startedAt: state.startedAt
   };
 }

@@ -114,6 +114,42 @@ Auto mode (the default) uses source when it's available and silently falls
 back to tab when it isn't. Choose **Source only** if you'd rather be told the
 quality isn't available than get a re-encoded clip.
 
+### Seeing quality before you save
+
+Each stream card shows exactly what a clip will contain, live:
+
+```
+⬥ SOURCE   1920×1080 · 60 fps · H.264 · 8.2 Mbps  (no re-encode)
+Buffer: 4m 12s / 30m · 248 MB · since 21:04
+```
+
+Resolution, frame rate and codec come from the stream's own rendition in
+source mode, and from the actual recorded canvas in tab mode — so what you see
+is what gets written, not the configured target. Bitrate in tab mode is
+measured from the live buffer rather than assumed.
+
+Every quick-clip button also carries its own estimated file size at the current
+bitrate, so a 30m clip tells you it's ~1.7 GB before you click it.
+
+### Long clips (30 minutes, 1 hour and beyond)
+
+Quick-clip presets accept `s` / `m` / `h`, so `30s, 1m, 5m, 30m, 1h` is a valid
+preset list, and the buffer goes up to **4 hours**.
+
+The one rule: **you can only clip what the buffer holds.** A 1-hour clip needs a
+1-hour buffer, and that buffer lives in RAM — roughly 3.4 GB at 8 Mbps. Two
+things make this visible instead of surprising:
+
+- The options page estimates memory for your chosen buffer length and bitrate,
+  and warns when your memory cap would truncate it. A 30-minute buffer at the
+  default 600 MB cap really only holds about 10 minutes — raise both together.
+- A preset longer than the buffer is drawn dashed and dimmed, and its tooltip
+  says what you'd actually get. It stays clickable and saves everything
+  available; it never fails silently.
+
+For hour-long buffers, source mode is much lighter than tab mode: it stores the
+broadcast's own compressed segments rather than a live re-encode.
+
 ### Clips contain the video only
 
 Neither mode puts chat, the sidebar or page chrome in your clips:

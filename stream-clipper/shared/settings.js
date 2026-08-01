@@ -7,7 +7,7 @@ const SCP_DEFAULT_SETTINGS = {
   maxBufferMB: 600,           // hard memory cap per stream (oldest footage dropped first)
 
   // Clipping
-  clipPresets: [30, 60, 120, 300], // seconds, shown as one-click buttons
+  clipPresets: [30, 60, 300, 600], // seconds, shown as one-click buttons
   defaultClipSeconds: 60,          // used by the keyboard shortcut
   customClipEnabled: true,         // show the free-form min/sec field in the popup
   postRollSeconds: 0,              // keep recording N extra seconds after a clip is requested
@@ -49,11 +49,14 @@ const SCP_RESOLUTIONS = {
 
 function scpNormalizeSettings(raw) {
   const s = { ...SCP_DEFAULT_SETTINGS, ...(raw || {}) };
-  s.bufferMinutes = clampNum(s.bufferMinutes, 1, 60);
-  s.maxBufferMB = clampNum(s.maxBufferMB, 100, 4000);
+  // Up to 4h of buffer and 32 GB of memory: long buffers are legitimate for
+  // clipping a whole segment of a stream, and the options page shows what
+  // each choice actually costs in RAM.
+  s.bufferMinutes = clampNum(s.bufferMinutes, 1, 240);
+  s.maxBufferMB = clampNum(s.maxBufferMB, 100, 32000);
   s.defaultClipSeconds = clampNum(s.defaultClipSeconds, 5, s.bufferMinutes * 60);
   s.clipPresets = (Array.isArray(s.clipPresets) ? s.clipPresets : SCP_DEFAULT_SETTINGS.clipPresets)
-    .map(v => clampNum(v, 5, 3600))
+    .map(v => clampNum(v, 5, 14400))
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 6);
   if (s.clipPresets.length === 0) s.clipPresets = [...SCP_DEFAULT_SETTINGS.clipPresets];
@@ -144,6 +147,64 @@ function scpIsLikelyStreamPage(url) {
   }
 }
 
+// Human-readable codec name from a MIME type or HLS CODECS attribute.
+function scpCodecLabel(raw) {
+  const s = String(raw || "").toLowerCase();
+  if (/avc1|h264|h\.264/.test(s)) return "H.264";
+  if (/hvc1|hev1|h265|hevc/.test(s)) return "H.265";
+  if (/av01/.test(s)) return "AV1";
+  if (/vp9|vp09/.test(s)) return "VP9";
+  if (/vp8/.test(s)) return "VP8";
+  return "";
+}
+
+// Accepts "30", "30s", "2m", "1h", "1m30s" and returns seconds.
+function scpParseDuration(text) {
+  const s = String(text).trim().toLowerCase();
+  if (!s) return NaN;
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s)); // bare number = seconds
+  const re = /(\d+(?:\.\d+)?)\s*(h|m|s)/g;
+  let total = 0;
+  let matched = false;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    matched = true;
+    const n = parseFloat(m[1]);
+    total += m[2] === "h" ? n * 3600 : m[2] === "m" ? n * 60 : n;
+  }
+  return matched ? Math.round(total) : NaN;
+}
+
+function scpParseDurationList(text) {
+  return String(text)
+    .split(",")
+    .map(scpParseDuration)
+    .filter(v => Number.isFinite(v) && v > 0);
+}
+
+// Compact label for a duration: 30s, 2m, 1h 30m.
+function scpFormatDuration(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return m ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return s ? `${m}m ${s}s` : `${m}m`;
+  return `${s}s`;
+}
+
+// Bytes needed to buffer `seconds` at `mbps`. Used to show the memory cost of
+// long buffers before the user commits to them.
+function scpEstimateBytes(seconds, mbps) {
+  return (seconds * mbps * 1_000_000) / 8;
+}
+
+function scpFormatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
 function scpSanitizeFileComponent(name) {
   return String(name)
     .replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_")
@@ -181,6 +242,12 @@ if (typeof globalThis !== "undefined") {
     scpSiteFromUrl,
     scpStreamerFromTab,
     scpIsLikelyStreamPage,
+    scpCodecLabel,
+    scpParseDuration,
+    scpParseDurationList,
+    scpFormatDuration,
+    scpEstimateBytes,
+    scpFormatBytes,
     scpSanitizeFileComponent,
     scpBuildFileName
   });

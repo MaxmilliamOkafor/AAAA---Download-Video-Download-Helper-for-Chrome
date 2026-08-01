@@ -16,7 +16,7 @@ function setSelectValue(el, value) {
 function fillForm(s) {
   setSelectValue($("#bufferMinutes"), s.bufferMinutes);
   setSelectValue($("#maxBufferMB"), s.maxBufferMB);
-  $("#clipPresets").value = s.clipPresets.join(", ");
+  $("#clipPresets").value = s.clipPresets.map(scpFormatDuration).join(", ");
   $("#defaultClipMin").value = Math.floor(s.defaultClipSeconds / 60);
   $("#defaultClipSec").value = s.defaultClipSeconds % 60;
   $("#customClipEnabled").checked = s.customClipEnabled;
@@ -35,6 +35,7 @@ function fillForm(s) {
   $("#notifyOnClipSaved").checked = s.notifyOnClipSaved;
   $("#notifyOnCaptureError").checked = s.notifyOnCaptureError;
   updatePreview();
+  updateBufferEstimate();
 }
 
 function readForm() {
@@ -43,10 +44,7 @@ function readForm() {
   return {
     bufferMinutes: Number($("#bufferMinutes").value),
     maxBufferMB: Number($("#maxBufferMB").value),
-    clipPresets: $("#clipPresets").value
-      .split(",")
-      .map(v => parseInt(v.trim(), 10))
-      .filter(v => Number.isFinite(v) && v > 0),
+    clipPresets: scpParseDurationList($("#clipPresets").value),
     defaultClipSeconds: Math.max(5, min * 60 + sec),
     customClipEnabled: $("#customClipEnabled").checked,
     postRollSeconds: Number($("#postRollSeconds").value),
@@ -64,6 +62,34 @@ function readForm() {
     notifyOnClipSaved: $("#notifyOnClipSaved").checked,
     notifyOnCaptureError: $("#notifyOnCaptureError").checked
   };
+}
+
+// A long buffer is held in RAM, so show what the current choices actually
+// cost before the user commits to them.
+function updateBufferEstimate() {
+  const minutes = Number($("#bufferMinutes").value);
+  const capMB = Number($("#maxBufferMB").value);
+  const mbps = Number($("#videoBitrateMbps").value);
+  const el = $("#buffer-estimate");
+
+  const wanted = scpEstimateBytes(minutes * 60, mbps);
+  const capBytes = capMB * 1024 * 1024;
+  const held = Math.min(wanted, capBytes);
+
+  let text =
+    `A ${scpFormatDuration(minutes * 60)} buffer at ~${mbps} Mbps holds about ` +
+    `${scpFormatBytes(wanted)} in memory, per stream.`;
+
+  if (wanted > capBytes) {
+    const actualSeconds = (capBytes * 8) / (mbps * 1e6);
+    text +=
+      ` Your ${scpFormatBytes(capBytes)} memory cap will cut that to roughly ` +
+      `${scpFormatDuration(actualSeconds)} of footage — raise the cap to get the full length.`;
+  }
+  if (held > 4 * 1024 ** 3) {
+    text += " That is a lot of RAM; make sure your machine has room, especially with several streams monitored at once.";
+  }
+  el.textContent = text;
 }
 
 function updatePreview() {
@@ -87,6 +113,9 @@ async function init() {
   fillForm(await scpLoadSettings());
 
   $("#fileNameTemplate").addEventListener("input", updatePreview);
+  for (const id of ["#bufferMinutes", "#maxBufferMB", "#videoBitrateMbps"]) {
+    $(id).addEventListener("change", updateBufferEstimate);
+  }
 
   $("#save").addEventListener("click", async () => {
     await scpSaveSettings(readForm());

@@ -59,15 +59,23 @@ class ScpHlsBuffer {
 
   stats() {
     const bufferedSeconds = this.segments.reduce((a, s) => a + s.duration, 0);
+    const v = this.variant;
     return {
       mode: "source",
       bufferedSeconds: Math.round(bufferedSeconds),
       maxBufferSeconds: this.settings.bufferMinutes * 60,
       bufferedBytes: this.bytes,
       startedAt: this.startedAt,
-      quality: this.variant
-        ? `${this.variant.height}p${this.variant.frameRate ? Math.round(this.variant.frameRate) : ""}`
-        : "source",
+      quality: v ? `${v.height}p${v.frameRate ? Math.round(v.frameRate) : ""}` : "source",
+      width: v ? v.width : 0,
+      height: v ? v.height : 0,
+      frameRate: v && v.frameRate ? Math.round(v.frameRate) : 0,
+      codec: v ? scpCodecLabel(v.codecs) : "",
+      container: this.container,
+      // Prefer the rendition's advertised bandwidth; fall back to measured.
+      bitrateMbps: v && v.bandwidth
+        ? v.bandwidth / 1e6
+        : bufferedSeconds > 0 ? (this.bytes * 8) / bufferedSeconds / 1e6 : 0,
       segmentCount: this.segments.length
     };
   }

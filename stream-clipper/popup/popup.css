@@ -195,7 +195,10 @@ body {
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
-.session-meta { margin-top: 5px; color: var(--muted); font-size: 11.5px; }
+.quality-row { margin-top: 6px; display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.quality-line { font-size: 11.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.quality-line .dim { color: var(--muted); }
+.session-meta { margin-top: 4px; color: var(--muted); font-size: 11.5px; }
 .mode-badge {
   display: inline-block;
   margin-right: 6px;
@@ -234,6 +237,15 @@ body {
 .clip-buttons .btn { padding: 5px 11px; font-size: 12px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
 .clip-buttons .btn:hover { border-color: var(--accent); color: var(--accent-2); }
 .clip-buttons .btn.flash { background: var(--ok); border-color: var(--ok); color: #fff; }
+/* Preset longer than the buffer can hold — still clickable, saves what exists. */
+.clip-buttons .btn.over-buffer { opacity: 0.55; border-style: dashed; }
+.clip-buttons .btn .est {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 1px;
+}
 
 .custom-row {
   margin-top: 8px;
