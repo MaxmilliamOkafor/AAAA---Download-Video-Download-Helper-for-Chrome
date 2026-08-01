@@ -28,6 +28,8 @@ class ScpHlsBuffer {
     this.consecutiveFailures = 0;
     this.container = "ts";     // ts | mp4
     this.primed = false;       // false until the live-edge starting point is set
+    this.adSegmentsSkipped = 0;
+    this.inAdBreak = false;
   }
 
   async start() {
@@ -72,6 +74,8 @@ class ScpHlsBuffer {
       frameRate: v && v.frameRate ? Math.round(v.frameRate) : 0,
       codec: v ? scpCodecLabel(v.codecs) : "",
       container: this.container,
+      adSegmentsSkipped: this.adSegmentsSkipped,
+      inAdBreak: this.inAdBreak,
       // Prefer the rendition's advertised bandwidth; fall back to measured.
       bitrateMbps: v && v.bandwidth
         ? v.bandwidth / 1e6
@@ -143,8 +147,17 @@ class ScpHlsBuffer {
         fresh = edge;
       }
 
+      this.inAdBreak = !!playlist.inAdBreak;
+
       for (const seg of fresh) {
         if (this.stopped) return;
+        // Advertising never enters the buffer, so it can never reach a clip.
+        // Skipping the download also saves the bandwidth it would have cost.
+        if (seg.isAd && this.settings.excludeAds !== false) {
+          this.seenSeq.add(seg.seq);
+          this.adSegmentsSkipped++;
+          continue;
+        }
         try {
           const bytes = await this.#fetchBytes(seg.url);
           this.seenSeq.add(seg.seq);

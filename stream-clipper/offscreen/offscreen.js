@@ -248,6 +248,9 @@ async function startCapture({ tabId, streamId, settings }) {
     bytes: 0,
     startedAt: Date.now(),
     pendingClips: new Set(), // post-roll clips waiting on their timer
+    adWindows: [],           // [{ start, end }] epoch ms spans that were ads
+    adStartedAt: null,       // set while an ad is on screen
+    adSecondsExcluded: 0,
     stopping: false
   };
   captures.set(tabId, state);
@@ -280,6 +283,30 @@ async function startCapture({ tabId, streamId, settings }) {
     cropped: !!cropper,
     quality: dims ? `${dims.height}p` : null
   };
+}
+
+// Records when an ad starts and ends so clip assembly can drop those spans.
+// Recording continues through the break; only the affected chunks are
+// excluded, which keeps the recorder and its container header stable.
+function trackAdState(state, isAd) {
+  if (state.settings.excludeAds === false) return;
+  if (isAd && state.adStartedAt == null) {
+    state.adStartedAt = Date.now();
+  } else if (!isAd && state.adStartedAt != null) {
+    const window = { start: state.adStartedAt, end: Date.now() };
+    state.adWindows.push(window);
+    state.adSecondsExcluded += Math.round((window.end - window.start) / 1000);
+    state.adStartedAt = null;
+    // Only windows still reachable from the buffer are worth keeping.
+    const horizon = Date.now() - state.settings.bufferMinutes * 60 * 1000;
+    state.adWindows = state.adWindows.filter(w => w.end >= horizon);
+  }
+}
+
+function isDuringAd(state, t) {
+  // A break still in progress extends to now.
+  if (state.adStartedAt != null && t >= state.adStartedAt) return true;
+  return state.adWindows.some(w => t >= w.start && t <= w.end);
 }
 
 function pruneBuffer(state) {
@@ -339,8 +366,12 @@ async function finishPendingClip(state, pending) {
 
   const startCut = pending.requestedAt - pending.durationSeconds * 1000;
   const endCut = pending.requestedAt + pending.postRollSeconds * 1000 + CHUNK_MS;
-  const selected = state.chunks.filter(c => c.t >= startCut && c.t <= endCut);
+  const inRange = state.chunks.filter(c => c.t >= startCut && c.t <= endCut);
+  // Drop footage recorded while an ad was on screen, so the clip cuts
+  // straight from pre-ad content to where the stream resumed.
+  const selected = inRange.filter(c => !isDuringAd(state, c.t));
   if (selected.length === 0 || !state.headerChunk) return;
+  const adChunksDropped = inRange.length - selected.length;
 
   const raw = new Blob([state.headerChunk, ...selected.map(c => c.blob)], {
     type: state.recorder.mimeType || "video/webm"
@@ -357,6 +388,7 @@ async function finishPendingClip(state, pending) {
       url,
       sizeBytes: blob.size,
       lengthSeconds: Math.round(selected.length * (CHUNK_MS / 1000)),
+      adSecondsRemoved: Math.round(adChunksDropped * (CHUNK_MS / 1000)),
       extension: "webm"
     })
     .catch(() => {});
@@ -397,6 +429,8 @@ function getStats(tabId) {
     frameRate,
     codec: scpCodecLabel(state.recorder.mimeType),
     cropped: !!state.cropper,
+    adSecondsExcluded: state.adSecondsExcluded,
+    inAdBreak: state.adStartedAt != null,
     // Measured from real buffered data, so it reflects what will be saved
     // rather than the configured target.
     bitrateMbps: bufferedSeconds > 0 ? (state.bytes * 8) / bufferedSeconds / 1e6 : 0,
@@ -474,7 +508,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // with theater mode, fullscreen and window resizes.
           msgRects.set(msg.tabId, msg.geometry);
           const state = captures.get(msg.tabId);
-          if (state && state.cropper) state.cropper.update(msg.geometry);
+          if (state) {
+            if (state.cropper && msg.geometry && msg.geometry.found) {
+              state.cropper.update(msg.geometry);
+            }
+            trackAdState(state, !!(msg.geometry && msg.geometry.isAd));
+          }
           sendResponse({ ok: true });
           break;
         }

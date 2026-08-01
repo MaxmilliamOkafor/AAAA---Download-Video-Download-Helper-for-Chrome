@@ -34,12 +34,47 @@
     return best;
   }
 
+  // Detects an ad playing in the player. Source mode reads ad markers straight
+  // from the stream playlist; tab mode has only the page, so it watches the
+  // indicators each site renders during a break.
+  const AD_SELECTORS = [
+    // Twitch
+    '[data-a-target="video-ad-label"]',
+    '[data-a-target="video-ad-countdown"]',
+    '[data-a-target="video-ad-countdown-container"]',
+    ".video-player__ad-overlay",
+    ".player-ad-notice",
+    // YouTube
+    ".html5-video-player.ad-showing",
+    ".html5-video-player.ad-interrupting",
+    ".ytp-ad-player-overlay",
+    ".ytp-ad-text",
+    // Kick
+    '[data-testid="video-ad-overlay"]',
+    ".vjs-ad-playing"
+  ];
+
+  function isAdPlaying() {
+    for (const sel of AD_SELECTORS) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      // Guard against hidden placeholder nodes the players keep in the DOM.
+      const r = el.getBoundingClientRect();
+      const styles = getComputedStyle(el);
+      if (styles.display === "none" || styles.visibility === "hidden") continue;
+      if (sel.includes("ad-showing") || sel.includes("ad-interrupting")) return true;
+      if (r.width > 0 && r.height > 0) return true;
+    }
+    return false;
+  }
+
   let lastPayload = "";
 
   function reportVideoRect() {
+    const adPlaying = isAdPlaying();
     const video = findPlayerVideo();
     if (!video) {
-      send({ found: false });
+      send({ found: false, isAd: adPlaying });
       return;
     }
     const r = video.getBoundingClientRect();
@@ -72,12 +107,13 @@
     const y1 = Math.min(vh, y + height);
 
     if (x1 - x0 < 20 || y1 - y0 < 20) {
-      send({ found: false, reason: "player is off screen" });
+      send({ found: false, reason: "player is off screen", isAd: adPlaying });
       return;
     }
 
     send({
       found: true,
+      isAd: adPlaying,
       rect: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
       viewport: { width: vw, height: vh },
       native: { width: video.videoWidth, height: video.videoHeight },

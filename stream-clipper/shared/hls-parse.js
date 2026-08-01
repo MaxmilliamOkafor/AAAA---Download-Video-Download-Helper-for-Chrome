@@ -52,9 +52,41 @@ function scpParseMediaPlaylist(text, baseUrl) {
   let sawSequence = false;
   let endList = false;
 
+  // Ad-break tracking. Two independent signals, either of which marks a
+  // segment as advertising:
+  //   * CUE-OUT/CUE-IN (and the SCTE-35 spellings) bracket a break.
+  //   * EXT-X-DATERANGE with an ad CLASS (Twitch stitches mid-rolls in this
+  //     way) declares a break of a given DURATION starting at that point.
+  let inCueOut = false;
+  let adSecondsRemaining = 0;
+  let adSegmentCount = 0;
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) continue;
+
+    if (/^#EXT-X-(CUE-OUT|SCTE35-OUT)\b/.test(line)) {
+      inCueOut = true;
+      continue;
+    }
+    if (/^#EXT-X-(CUE-IN|SCTE35-IN)\b/.test(line)) {
+      inCueOut = false;
+      adSecondsRemaining = 0; // break ended early
+      continue;
+    }
+    if (line.startsWith("#EXT-X-DATERANGE:")) {
+      const attrs = scpParseAttributes(line.slice("#EXT-X-DATERANGE:".length));
+      const cls = (attrs.CLASS || "").toLowerCase();
+      const isAdRange =
+        cls.includes("ad") ||
+        Object.keys(attrs).some(k => k.startsWith("X-TV-TWITCH-AD"));
+      if (isAdRange) {
+        const dur = parseFloat(attrs.DURATION || attrs["PLANNED-DURATION"] || "0") || 0;
+        // Unknown duration: fall back to CUE-IN / next non-ad marker.
+        adSecondsRemaining = Math.max(adSecondsRemaining, dur > 0 ? dur : 0.001);
+      }
+      continue;
+    }
 
     if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
       mediaSequence = parseInt(line.slice("#EXT-X-MEDIA-SEQUENCE:".length), 10) || 0;
@@ -82,15 +114,29 @@ function scpParseMediaPlaylist(text, baseUrl) {
     if (line.startsWith("#")) continue; // any other tag
 
     if (!sawSequence && segments.length === 0) seq = mediaSequence;
+    const isAd = inCueOut || adSecondsRemaining > 0;
+    if (isAd) adSegmentCount++;
     segments.push({
       seq: seq++,
       url: scpResolveUrl(line, baseUrl),
-      duration: pendingDuration
+      duration: pendingDuration,
+      isAd
     });
+    if (adSecondsRemaining > 0) {
+      adSecondsRemaining = Math.max(0, adSecondsRemaining - (pendingDuration || 0));
+    }
     pendingDuration = 0;
   }
 
-  return { segments, mediaSequence, targetDuration, initSegmentUrl, endList };
+  return {
+    segments,
+    mediaSequence,
+    targetDuration,
+    initSegmentUrl,
+    endList,
+    adSegmentCount,
+    inAdBreak: inCueOut || adSecondsRemaining > 0
+  };
 }
 
 function scpIsMasterPlaylist(text) {

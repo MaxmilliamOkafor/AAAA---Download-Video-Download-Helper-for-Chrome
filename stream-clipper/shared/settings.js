@@ -24,6 +24,9 @@ const SCP_DEFAULT_SETTINGS = {
   // This also raises effective quality — the whole bitrate covers video
   // instead of being spent on static page furniture.
   cropToVideo: true,
+  // Ads are detected from playlist markers (source) or the player's own ad
+  // indicator (tab), and excluded from the buffer or the assembled clip.
+  excludeAds: true,
   resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (tab mode: never exceeds what the player renders)
   frameRate: 60,              // 30 | 60
   videoBitrateMbps: 8,        // 4..40 — higher costs CPU and memory while encoding live
@@ -64,6 +67,7 @@ function scpNormalizeSettings(raw) {
   s.autoStartOnPopupOpen = s.autoStartOnPopupOpen !== false;
   if (!["auto", "source", "tab"].includes(s.captureMode)) s.captureMode = "auto";
   s.cropToVideo = s.cropToVideo !== false;
+  s.excludeAds = s.excludeAds !== false;
   s.sourceHeightCap = [0, 720, 1080, 1440, 2160].includes(Number(s.sourceHeightCap))
     ? Number(s.sourceHeightCap)
     : 0;

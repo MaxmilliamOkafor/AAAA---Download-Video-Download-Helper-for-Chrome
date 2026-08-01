@@ -35,8 +35,11 @@ function fmtBytes(bytes) {
 
 function switchView(view) {
   activeView = view;
-  $("#tab-streams").classList.toggle("active", view === "streams");
-  $("#tab-history").classList.toggle("active", view === "history");
+  const onStreams = view === "streams";
+  $("#tab-streams").classList.toggle("active", onStreams);
+  $("#tab-history").classList.toggle("active", !onStreams);
+  $("#tab-streams").setAttribute("aria-selected", String(onStreams));
+  $("#tab-history").setAttribute("aria-selected", String(!onStreams));
   $("#history-view").hidden = view !== "history";
   const streams = view === "streams";
   $("#sessions").hidden = !streams;
@@ -57,6 +60,21 @@ async function refresh() {
   renderCurrentTab(sessions);
   $("#empty").hidden = sessions.length > 0;
   $("#clip-all").hidden = sessions.length < 2;
+
+  const count = $("#streams-count");
+  count.hidden = sessions.length === 0;
+  count.textContent = String(sessions.length);
+
+  // Header subtitle doubles as an at-a-glance status line.
+  const sub = $("#brand-sub");
+  if (sessions.length === 0) {
+    sub.textContent = "Replay buffer idle";
+  } else {
+    const adLive = sessions.filter(s => s.stats && s.stats.inAdBreak).length;
+    sub.textContent =
+      `${sessions.length} stream${sessions.length > 1 ? "s" : ""} buffering` +
+      (adLive > 0 ? ` · ${adLive} in ad break` : "");
+  }
 }
 
 function renderCurrentTab(sessions) {
@@ -110,8 +128,26 @@ function renderSessions(sessions) {
       info.textContent = text;
       const pct = Math.min(100, (stats.bufferedSeconds / stats.maxBufferSeconds) * 100);
       node.querySelector(".buffer-fill").style.width = `${pct}%`;
+      node.querySelector(".buffer-bar").setAttribute("aria-valuenow", String(Math.round(pct)));
     } else {
       info.textContent = "Buffer warming up…";
+    }
+
+    // Ads: report both a live break and the total kept out of the buffer.
+    const adNote = node.querySelector(".ad-note");
+    const adSeconds = stats
+      ? stats.adSecondsExcluded || (stats.adSegmentsSkipped || 0) * 2
+      : 0;
+    if (stats && stats.inAdBreak) {
+      adNote.hidden = false;
+      adNote.dataset.live = "true";
+      adNote.textContent = "⏸ Ad break — excluded from clips";
+    } else if (adSeconds > 0) {
+      adNote.hidden = false;
+      adNote.dataset.live = "false";
+      adNote.textContent = `✓ ${scpFormatDuration(adSeconds)} of ads kept out of this buffer`;
+    } else {
+      adNote.hidden = true;
     }
 
     const btnBox = node.querySelector(".clip-buttons");
@@ -188,6 +224,9 @@ async function renderHistory() {
     ? `${clipHistory.length} recent clip${clipHistory.length > 1 ? "s" : ""}`
     : "";
   $("#clear-history").hidden = clipHistory.length === 0;
+  const badge = $("#history-badge");
+  badge.hidden = clipHistory.length === 0;
+  badge.textContent = String(clipHistory.length);
 
   const tpl = $("#history-item-template");
   for (const clip of clipHistory) {
@@ -196,9 +235,13 @@ async function renderHistory() {
     chip.textContent = clip.site;
     chip.dataset.site = clip.site;
     node.querySelector(".history-name").textContent = clip.streamer;
-    node.querySelector(".history-meta").textContent =
-      `${fmtDuration(clip.lengthSeconds)} · ${fmtBytes(clip.sizeBytes)} · ` +
-      new Date(clip.time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const meta = [
+      scpFormatDuration(clip.lengthSeconds),
+      fmtBytes(clip.sizeBytes),
+      new Date(clip.time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    ];
+    if (clip.adSecondsRemoved > 0) meta.push(`${scpFormatDuration(clip.adSecondsRemoved)} of ads removed`);
+    node.querySelector(".history-meta").textContent = meta.join(" · ");
     node.querySelector(".show-file").addEventListener("click", () => {
       chrome.downloads.show(clip.downloadId);
     });

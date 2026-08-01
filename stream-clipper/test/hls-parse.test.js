@@ -131,4 +131,115 @@ test("survives empty and malformed input", () => {
   assert.strictEqual(scpIsMasterPlaylist(""), false);
 });
 
+// --- ad breaks: Twitch stitched mid-roll via EXT-X-DATERANGE ---
+const twitchAd = [
+  "#EXTM3U",
+  "#EXT-X-TARGETDURATION:2",
+  "#EXT-X-MEDIA-SEQUENCE:500",
+  "#EXTINF:2.000,",
+  "content0.ts",
+  '#EXT-X-DATERANGE:ID="stitched-ad-9",CLASS="twitch-stitched-ad",START-DATE="2024-01-01T00:00:00.000Z",DURATION=6.000,X-TV-TWITCH-AD-ROLL-TYPE="MIDROLL"',
+  "#EXT-X-DISCONTINUITY",
+  "#EXTINF:2.000,",
+  "ad0.ts",
+  "#EXTINF:2.000,",
+  "ad1.ts",
+  "#EXTINF:2.000,",
+  "ad2.ts",
+  "#EXT-X-DISCONTINUITY",
+  "#EXTINF:2.000,",
+  "content1.ts"
+].join("\n");
+
+test("flags Twitch stitched-ad segments and only those", () => {
+  const p = scpParseMediaPlaylist(twitchAd, "https://cdn.example/live.m3u8");
+  assert.strictEqual(p.segments.length, 5);
+  assert.deepStrictEqual(
+    p.segments.map(s => s.isAd),
+    [false, true, true, true, false]
+  );
+  assert.strictEqual(p.adSegmentCount, 3);
+  assert.strictEqual(p.inAdBreak, false); // break consumed by segment durations
+  // Sequence numbering must stay contiguous across the break.
+  assert.deepStrictEqual(p.segments.map(s => s.seq), [500, 501, 502, 503, 504]);
+});
+
+test("keeps content URLs intact when ads are present", () => {
+  const p = scpParseMediaPlaylist(twitchAd, "https://cdn.example/live.m3u8");
+  const content = p.segments.filter(s => !s.isAd).map(s => s.url);
+  assert.deepStrictEqual(content, [
+    "https://cdn.example/content0.ts",
+    "https://cdn.example/content1.ts"
+  ]);
+});
+
+test("handles CUE-OUT/CUE-IN ad brackets", () => {
+  const cued = [
+    "#EXTM3U",
+    "#EXT-X-TARGETDURATION:4",
+    "#EXT-X-MEDIA-SEQUENCE:10",
+    "#EXTINF:4.000,",
+    "a.ts",
+    "#EXT-X-CUE-OUT:8.000",
+    "#EXTINF:4.000,",
+    "ad-a.ts",
+    "#EXTINF:4.000,",
+    "ad-b.ts",
+    "#EXT-X-CUE-IN",
+    "#EXTINF:4.000,",
+    "b.ts"
+  ].join("\n");
+  const p = scpParseMediaPlaylist(cued, "https://cdn.example/l.m3u8");
+  assert.deepStrictEqual(p.segments.map(s => s.isAd), [false, true, true, false]);
+  assert.strictEqual(p.adSegmentCount, 2);
+});
+
+test("CUE-IN ends a break early even if DATERANGE claimed longer", () => {
+  const early = [
+    "#EXTM3U",
+    "#EXT-X-TARGETDURATION:2",
+    '#EXT-X-DATERANGE:CLASS="twitch-stitched-ad",DURATION=60.000',
+    "#EXTINF:2.000,",
+    "ad.ts",
+    "#EXT-X-CUE-IN",
+    "#EXTINF:2.000,",
+    "back.ts"
+  ].join("\n");
+  const p = scpParseMediaPlaylist(early, "https://cdn.example/l.m3u8");
+  assert.deepStrictEqual(p.segments.map(s => s.isAd), [true, false]);
+});
+
+test("reports an ad break still open at the live edge", () => {
+  const open = [
+    "#EXTM3U",
+    "#EXT-X-TARGETDURATION:2",
+    "#EXT-X-CUE-OUT:30.000",
+    "#EXTINF:2.000,",
+    "ad.ts"
+  ].join("\n");
+  const p = scpParseMediaPlaylist(open, "https://cdn.example/l.m3u8");
+  assert.strictEqual(p.inAdBreak, true);
+  assert.strictEqual(p.segments[0].isAd, true);
+});
+
+test("non-ad DATERANGE tags do not mark segments", () => {
+  const chapter = [
+    "#EXTM3U",
+    "#EXT-X-TARGETDURATION:2",
+    '#EXT-X-DATERANGE:ID="chapter-1",CLASS="chapter",DURATION=600.000',
+    "#EXTINF:2.000,",
+    "c.ts"
+  ].join("\n");
+  const p = scpParseMediaPlaylist(chapter, "https://cdn.example/l.m3u8");
+  assert.strictEqual(p.segments[0].isAd, false);
+  assert.strictEqual(p.adSegmentCount, 0);
+});
+
+test("ad-free playlists report no ads", () => {
+  const p = scpParseMediaPlaylist(liveTs, "https://cdn.example/live/index.m3u8");
+  assert.strictEqual(p.adSegmentCount, 0);
+  assert.strictEqual(p.inAdBreak, false);
+  assert.ok(p.segments.every(s => s.isAd === false));
+});
+
 console.log(`\n${passed} HLS parser tests passed`);

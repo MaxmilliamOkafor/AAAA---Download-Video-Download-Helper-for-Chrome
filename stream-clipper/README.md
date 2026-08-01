@@ -114,6 +114,27 @@ Auto mode (the default) uses source when it's available and silently falls
 back to tab when it isn't. Choose **Source only** if you'd rather be told the
 quality isn't available than get a re-encoded clip.
 
+### Ads never reach your clips
+
+Mid-roll ads are detected and excluded automatically, by different means in
+each mode:
+
+- **Source mode** reads the ad markers in the stream's own playlist —
+  `EXT-X-DATERANGE` with an ad class (how Twitch stitches mid-rolls) and
+  `CUE-OUT`/`CUE-IN` brackets. Those segments are never downloaded at all, so
+  ads cost you no bandwidth and cannot reach the buffer. Parsing is covered by
+  unit tests, including breaks that end early and non-ad date ranges that must
+  not be mistaken for ads.
+- **Tab mode** watches the ad indicator each site renders (Twitch's ad label
+  and countdown, YouTube's `ad-showing` state, Kick's overlay) and drops the
+  footage recorded during the break.
+
+Either way the clip cuts straight from pre-ad content to where the stream
+resumed. The stream card shows `⏸ Ad break — excluded from clips` live, and
+afterwards how much advertising was kept out; the clip history records how much
+was removed from each saved file. Turn it off in Settings if you ever want the
+raw recording.
+
 ### Seeing quality before you save
 
 Each stream card shows exactly what a clip will contain, live:

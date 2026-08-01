@@ -25,6 +25,7 @@ function fillForm(s) {
   $("#captureMode").value = s.captureMode;
   setSelectValue($("#sourceHeightCap"), s.sourceHeightCap);
   $("#cropToVideo").checked = s.cropToVideo;
+  $("#excludeAds").checked = s.excludeAds;
   setSelectValue($("#resolutionCap"), s.resolutionCap);
   setSelectValue($("#frameRate"), s.frameRate);
   setSelectValue($("#videoBitrateMbps"), s.videoBitrateMbps);
@@ -52,6 +53,7 @@ function readForm() {
     captureMode: $("#captureMode").value,
     sourceHeightCap: Number($("#sourceHeightCap").value),
     cropToVideo: $("#cropToVideo").checked,
+    excludeAds: $("#excludeAds").checked,
     resolutionCap: Number($("#resolutionCap").value),
     frameRate: Number($("#frameRate").value),
     videoBitrateMbps: Number($("#videoBitrateMbps").value),

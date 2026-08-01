@@ -355,6 +355,7 @@ async function handleClipReady(msg) {
       streamer: session.streamer || "stream",
       lengthSeconds: msg.lengthSeconds,
       sizeBytes: msg.sizeBytes,
+      adSecondsRemoved: msg.adSecondsRemoved || 0,
       time: Date.now()
     });
     if (settings.notifyOnClipSaved) {

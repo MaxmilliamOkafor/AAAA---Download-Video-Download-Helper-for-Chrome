@@ -1,13 +1,30 @@
 :root {
-  --bg: #12141a;
-  --panel: #1b1e27;
-  --panel-2: #232735;
-  --text: #e8eaf0;
-  --muted: #9aa1b2;
-  --accent: #7c5cff;
-  --border: #2c3040;
-  --ok: #37c979;
+  --bg: #0f1116;
+  --panel: #171a21;
+  --panel-2: #1e222b;
+  --text: #eceef2;
+  --muted: #a7aebc;
+  --accent: #6d4aff;
+  --border: #2b303b;
+  --ok: #30a46c;
+  --r-md: 9px;
+  --r-lg: 13px;
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
 }
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --panel-2: #f1f3f6;
+    --text: #16181d;
+    --muted: #5b6472;
+    --border: #e0e4ea;
+  }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+:focus:not(:focus-visible) { outline: none; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,10 +44,12 @@ h1 { font-size: 20px; }
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   padding: 20px;
   margin-bottom: 16px;
 }
+select, input[type="text"], input[type="number"] { transition: border-color 0.14s var(--ease); }
+.btn { transition: background 0.14s var(--ease), filter 0.14s var(--ease); }
 h2 { font-size: 15px; margin-bottom: 10px; }
 .desc { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
 .desc.warn {
@@ -82,12 +101,17 @@ code {
 .preview { margin-top: 10px; color: var(--muted); font-size: 12px; word-break: break-all; }
 .preview::before { content: "Preview: "; color: var(--text); font-weight: 600; }
 
+/* Save bar stays reachable without scrolling back up. */
 .actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 6px;
+  padding: 14px 0;
+  background: linear-gradient(to top, var(--bg) 70%, transparent);
 }
 .status { color: var(--ok); font-size: 13px; margin-right: auto; }
 
