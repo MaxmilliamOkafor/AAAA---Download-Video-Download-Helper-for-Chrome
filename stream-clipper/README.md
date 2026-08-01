@@ -22,10 +22,17 @@ video in a tab.
 - **Multi-streamer.** Monitor several tabs at once (Twitch + Kick + YouTube
   simultaneously). Clip one stream, or hit **Alt+Shift+C** / "⚡ Clip all" to
   clip every monitored stream at the same moment.
-- **Full quality control.** Resolution cap up to 4K, 30/60 fps, video bitrate
-  up to 30 Mbps, audio up to 320 kbps, codec preference (H.264 / VP9 / VP8).
-  Capture quality matches what the player renders — set the stream to its
-  highest quality (1080p60, 4K) for best results.
+- **True source quality, no re-encoding.** When a stream uses HLS (Twitch and
+  Kick always do, most YouTube live does), StreamClip buffers the
+  broadcaster's **original video segments** — the exact bytes the CDN sends —
+  and a clip is those segments concatenated. No decode/encode round trip, so
+  there is zero generation loss: the clip is the broadcast. It also always
+  buffers the stream's *best* rendition, so you can watch at 720p to save
+  bandwidth and still clip at 1080p60. Falls back automatically to tab
+  recording on sites that don't expose HLS.
+- **Full quality control.** In tab mode: resolution cap up to 4K, 30/60 fps,
+  video bitrate up to 30 Mbps, audio up to 320 kbps, codec preference
+  (H.264 / VP9 / VP8).
 - **Editor-ready files.** Clip timestamps are rebased to start at 0:00
   (in-place WebM timecode patching, covered by unit tests), so clips show the
   correct duration and scrub cleanly in players and editors.
@@ -62,15 +69,28 @@ notifications.
 ## Architecture
 
 ```
-manifest.json          MV3 manifest (tabCapture, offscreen, downloads, storage)
-background.js          Service worker: session registry, downloads, hotkeys, notifications
-offscreen/             Capture engine: one MediaRecorder per tab, rolling chunk
-                       buffer with time + memory pruning, clip assembly,
-                       WebM timecode rebasing (webm-rebase.js, unit-tested)
-popup/                 Control center: one card per monitored stream
+manifest.json          MV3 manifest (tabCapture, offscreen, downloads, webRequest)
+background.js          Service worker: session registry, HLS playlist discovery,
+                       capture-mode selection, downloads, hotkeys, notifications
+offscreen/
+  hls-buffer.js        Source mode: polls the media playlist, keeps original
+                       segments in a rolling buffer, concatenates clips
+  offscreen.js         Tab mode: one MediaRecorder per tab, chunk buffer,
+                       clip assembly; routes both modes' messages
+  webm-rebase.js       Rebases WebM cluster timecodes to 0:00 (unit-tested)
+popup/                 Control center: one card per monitored stream + history
 options/               Full settings page (chrome.storage.sync)
-shared/settings.js     Settings model, filename templating, site/streamer detection
+shared/
+  settings.js          Settings model, filename templating, site detection
+  hls-parse.js         HLS master/media playlist parser (unit-tested)
+test/                  Node unit tests — run: node test/hls-parse.test.js
 ```
+
+Source mode discovers the playlist by observing (never blocking or modifying)
+`.m3u8` requests the tab already makes, then fetches the media playlist and its
+segments directly. This is why the extension requests `webRequest` and broad
+host permissions: stream segments are served from arbitrary CDN hostnames that
+can't be enumerated ahead of time.
 
 Capture uses `chrome.tabCapture` → `MediaRecorder` in an offscreen document
 with 1-second timeslices. The first chunk (container header) is retained and
@@ -78,12 +98,32 @@ prepended to the selected window of recent chunks to produce a playable WebM.
 Tab audio is routed back to your speakers during capture, so the stream stays
 audible.
 
-### Known limitations (v1)
+### Capture modes
 
-- Clips are WebM (H.264/VP9 + Opus). Every major editor (Premiere, DaVinci,
-  CapCut) imports WebM; choose H.264 in settings for the widest compatibility.
-- Clip boundaries are accurate to ~1 second (chunk granularity).
-- DRM-protected video (Widevine) captures as a black frame — that's a browser
+| | Source mode | Tab mode |
+|---|---|---|
+| What it records | The broadcaster's original HLS segments | The pixels the tab renders |
+| Quality | Identical to the broadcast — no re-encode | Re-encoded; capped by what the player shows |
+| Clip quality vs. watch quality | Independent — watch 720p, clip 1080p60 | Same as what you're watching |
+| Output | `.ts` (Twitch/Kick) or `.mp4` (fMP4 streams) | `.webm` |
+| CPU cost while buffering | Low (just downloading) | Higher (live encoding) |
+| Works on | HLS sites: Twitch, Kick, most YouTube live | Any site with video |
+| Clip precision | Segment-aligned (~2s on Twitch) | ~1 second |
+
+Auto mode (the default) uses source when it's available and silently falls
+back to tab when it isn't. Choose **Source only** if you'd rather be told the
+quality isn't available than get a re-encoded clip.
+
+### Known limitations
+
+- Source clips are `.ts` (MPEG-TS) on Twitch/Kick. Premiere, DaVinci, CapCut,
+  VLC and OBS all import `.ts` directly; if a tool refuses it, remux losslessly
+  with `ffmpeg -c copy`. fMP4 streams save as `.mp4` with their init segment
+  prepended.
+- Source clips start on a segment boundary, so a requested 30s may arrive as
+  30–32s on Twitch. Tab mode is accurate to ~1 second.
+- Tab-mode clips are WebM (H.264/VP9 + Opus) with timestamps rebased to 0:00.
+- DRM-protected video (Widevine) captures as a black frame in tab mode — that's a browser
   guarantee, not a bug. Standard Twitch/Kick/YouTube live streams are fine.
 - Capture records what the tab renders. For pristine quality: set the player
   to source quality, keep the tab undocked or in the background (audio and

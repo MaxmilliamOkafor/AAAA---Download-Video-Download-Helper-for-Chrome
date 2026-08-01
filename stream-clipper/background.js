@@ -2,7 +2,7 @@
 // Owns the session registry, routes work to the offscreen capture document,
 // and turns finished clips into downloads + notifications.
 
-importScripts("shared/settings.js");
+importScripts("shared/settings.js", "shared/hls-parse.js");
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 
@@ -12,8 +12,35 @@ const sessions = new Map();
 const pendingDownloads = new Map();
 // Tabs the user explicitly stopped — auto-start won't re-arm them until navigation.
 const manualStops = new Set();
+// tabId -> { url, seenAt } — the newest HLS playlist the tab requested.
+const playlistsByTab = new Map();
 
 const HISTORY_LIMIT = 50;
+const PLAYLIST_TTL_MS = 5 * 60 * 1000;
+
+// Watch for the stream's own HLS playlist so we can buffer original segments
+// instead of re-encoding the rendered tab. Observation only — nothing is
+// blocked, redirected or modified.
+chrome.webRequest.onBeforeRequest.addListener(
+  details => {
+    if (details.tabId < 0) return;
+    const url = details.url;
+    if (!/\.m3u8(\?|$)/i.test(url)) return;
+    const existing = playlistsByTab.get(details.tabId);
+    // Prefer a master playlist (it lists every quality) over a rendition one.
+    const isMasterish = /master|playlist/i.test(url);
+    if (existing && !isMasterish && Date.now() - existing.seenAt < 30_000) return;
+    playlistsByTab.set(details.tabId, { url, seenAt: Date.now() });
+  },
+  { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] }
+);
+
+function getPlaylistForTab(tabId) {
+  const entry = playlistsByTab.get(tabId);
+  if (!entry) return null;
+  if (Date.now() - entry.seenAt > PLAYLIST_TTL_MS) return null;
+  return entry.url;
+}
 
 let creatingOffscreen = null;
 
@@ -68,7 +95,6 @@ async function startCapture(tabId, { auto = false } = {}) {
   }
 
   const settings = await scpLoadSettings();
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
   await ensureOffscreenDocument();
 
   const meta = {
@@ -79,12 +105,49 @@ async function startCapture(tabId, { auto = false } = {}) {
     streamer: scpStreamerFromTab(tab.url || "", tab.title || ""),
     startedAt: Date.now(),
     status: "starting",
+    mode: null,
     lastError: null
   };
   sessions.set(tabId, meta);
   updateBadge();
 
-  const res = await chrome.runtime.sendMessage({
+  const playlistUrl = getPlaylistForTab(tabId);
+  const wantSource = settings.captureMode !== "tab" && !!playlistUrl;
+  let res = null;
+
+  // Preferred path: buffer the broadcaster's original segments (no re-encode).
+  if (wantSource) {
+    res = await chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "start-source-capture",
+      tabId,
+      playlistUrl,
+      settings
+    }).catch(e => ({ ok: false, error: e.message }));
+    if (res && res.ok) {
+      meta.status = "recording";
+      meta.mode = "source";
+      meta.quality = res.quality || null;
+      updateBadge();
+      return { ok: true, mode: "source", quality: res.quality };
+    }
+  }
+
+  // Source mode was requested explicitly but unavailable — say so rather than
+  // silently downgrading the quality the user asked for.
+  if (settings.captureMode === "source") {
+    sessions.delete(tabId);
+    updateBadge();
+    await maybeCloseOffscreen();
+    const why = playlistUrl
+      ? (res && res.error) || "could not read the stream playlist"
+      : "no stream playlist seen on this tab yet — start playback, then try again";
+    return { ok: false, error: `Source-quality capture unavailable: ${why}.` };
+  }
+
+  // Universal fallback: record what the tab renders.
+  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+  res = await chrome.runtime.sendMessage({
     target: "offscreen",
     type: "start-capture",
     tabId,
@@ -99,9 +162,10 @@ async function startCapture(tabId, { auto = false } = {}) {
     return { ok: false, error: (res && res.error) || "Could not start capture." };
   }
   meta.status = "recording";
+  meta.mode = "tab";
   meta.mimeType = res.mimeType;
   updateBadge();
-  return { ok: true };
+  return { ok: true, mode: "tab" };
 }
 
 async function stopCapture(tabId, { silent = false, byUser = false } = {}) {

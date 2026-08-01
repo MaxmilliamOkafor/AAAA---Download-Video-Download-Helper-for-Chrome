@@ -14,7 +14,9 @@ const SCP_DEFAULT_SETTINGS = {
   autoStartOnPopupOpen: true,      // opening the popup on a Twitch/Kick/YouTube stream starts monitoring
 
   // Capture quality
-  resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (capture never exceeds what the player renders)
+  captureMode: "auto",        // auto (source when available) | source (never re-encode) | tab
+  sourceHeightCap: 0,         // 0 = always take the stream's best rendition
+  resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (tab mode: never exceeds what the player renders)
   frameRate: 60,              // 30 | 60
   videoBitrateMbps: 12,       // 4..40
   audioBitrateKbps: 192,      // 96..320
@@ -49,6 +51,10 @@ function scpNormalizeSettings(raw) {
   if (s.clipPresets.length === 0) s.clipPresets = [...SCP_DEFAULT_SETTINGS.clipPresets];
   s.postRollSeconds = clampNum(s.postRollSeconds, 0, 60);
   s.autoStartOnPopupOpen = s.autoStartOnPopupOpen !== false;
+  if (!["auto", "source", "tab"].includes(s.captureMode)) s.captureMode = "auto";
+  s.sourceHeightCap = [0, 720, 1080, 1440, 2160].includes(Number(s.sourceHeightCap))
+    ? Number(s.sourceHeightCap)
+    : 0;
   s.resolutionCap = SCP_RESOLUTIONS[s.resolutionCap] ? s.resolutionCap : 1080;
   s.frameRate = s.frameRate === 30 ? 30 : 60;
   s.videoBitrateMbps = clampNum(s.videoBitrateMbps, 4, 40);

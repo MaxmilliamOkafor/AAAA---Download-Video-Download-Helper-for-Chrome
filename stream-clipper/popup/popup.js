@@ -87,6 +87,16 @@ function renderSessions(sessions) {
 
     const stats = s.stats;
     const info = node.querySelector(".buffer-info");
+    const modeBadge = node.querySelector(".mode-badge");
+    if (s.mode === "source") {
+      modeBadge.textContent = stats && stats.quality ? `⬥ SOURCE ${stats.quality}` : "⬥ SOURCE";
+      modeBadge.title = "Buffering the broadcaster's original segments — no re-encoding, no quality loss.";
+      modeBadge.dataset.mode = "source";
+    } else {
+      modeBadge.textContent = "◈ TAB";
+      modeBadge.title = "Recording what the tab renders. Works everywhere, but re-encodes.";
+      modeBadge.dataset.mode = "tab";
+    }
     if (stats) {
       let text =
         `Buffer: ${fmtDuration(stats.bufferedSeconds)} / ${fmtDuration(stats.maxBufferSeconds)}` +

@@ -82,8 +82,39 @@
     </section>
 
     <section class="card">
-      <h2>Capture quality</h2>
-      <p class="desc">Capture quality can never exceed what the player renders — set the stream to its highest quality (1080p60, 4K…) for best results.</p>
+      <h2>Capture mode</h2>
+      <p class="desc">
+        <strong>Source</strong> buffers the broadcaster's own video segments — the exact bytes the CDN
+        sends, with no decoding or re-encoding, so clips match the broadcast quality. It also grabs the
+        stream's best rendition regardless of the quality you're watching at, so you can watch in 720p to
+        save bandwidth and still clip in 1080p60. It needs the site to use HLS (Twitch and Kick always do).
+        <strong>Tab</strong> records what the tab renders — it works on every site, but re-encodes.
+      </p>
+      <div class="grid">
+        <label>
+          <span>Mode</span>
+          <select id="captureMode">
+            <option value="auto">Auto — source quality when available, otherwise tab (recommended)</option>
+            <option value="source">Source only — never re-encode (fails if unavailable)</option>
+            <option value="tab">Tab only — always record rendered video</option>
+          </select>
+        </label>
+        <label>
+          <span>Source quality cap <em>(bounds file size on 4K streams)</em></span>
+          <select id="sourceHeightCap">
+            <option value="0">Always the stream's best</option>
+            <option value="2160">Up to 4K</option>
+            <option value="1440">Up to 1440p</option>
+            <option value="1080">Up to 1080p</option>
+            <option value="720">Up to 720p</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Tab-capture quality</h2>
+      <p class="desc">These apply only when recording rendered video (tab mode). Source mode ignores them — it never re-encodes. In tab mode, quality can't exceed what the player shows, so set the stream to its highest quality first.</p>
       <div class="grid">
         <label>
           <span>Resolution cap</span>

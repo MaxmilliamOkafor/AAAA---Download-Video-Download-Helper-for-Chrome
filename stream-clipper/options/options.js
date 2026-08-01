@@ -22,6 +22,8 @@ function fillForm(s) {
   $("#customClipEnabled").checked = s.customClipEnabled;
   setSelectValue($("#postRollSeconds"), s.postRollSeconds);
   $("#autoStartOnPopupOpen").checked = s.autoStartOnPopupOpen;
+  $("#captureMode").value = s.captureMode;
+  setSelectValue($("#sourceHeightCap"), s.sourceHeightCap);
   setSelectValue($("#resolutionCap"), s.resolutionCap);
   setSelectValue($("#frameRate"), s.frameRate);
   setSelectValue($("#videoBitrateMbps"), s.videoBitrateMbps);
@@ -48,6 +50,8 @@ function readForm() {
     customClipEnabled: $("#customClipEnabled").checked,
     postRollSeconds: Number($("#postRollSeconds").value),
     autoStartOnPopupOpen: $("#autoStartOnPopupOpen").checked,
+    captureMode: $("#captureMode").value,
+    sourceHeightCap: Number($("#sourceHeightCap").value),
     resolutionCap: Number($("#resolutionCap").value),
     frameRate: Number($("#frameRate").value),
     videoBitrateMbps: Number($("#videoBitrateMbps").value),

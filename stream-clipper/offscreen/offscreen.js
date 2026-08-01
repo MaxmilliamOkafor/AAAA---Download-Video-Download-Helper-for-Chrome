@@ -8,8 +8,64 @@ const CHUNK_MS = 1000; // recorder timeslice — 1s granularity for clip boundar
 
 // tabId -> capture state
 const captures = new Map();
+// tabId -> ScpHlsBuffer, for source-quality (no re-encode) sessions
+const sourceBuffers = new Map();
 // blob object URLs we handed to the background for downloading
 const liveUrls = new Set();
+
+async function startSourceCapture({ tabId, playlistUrl, settings }) {
+  if (sourceBuffers.has(tabId)) throw new Error("Already capturing this tab.");
+  const buffer = new ScpHlsBuffer({
+    tabId,
+    playlistUrl,
+    settings,
+    onError: message => {
+      sourceBuffers.delete(tabId);
+      chrome.runtime
+        .sendMessage({ target: "background", type: "capture-ended", tabId, error: message })
+        .catch(() => {});
+    }
+  });
+  sourceBuffers.set(tabId, buffer);
+  try {
+    const info = await buffer.start();
+    const v = info.variant;
+    return { quality: v ? `${v.height}p${v.frameRate ? Math.round(v.frameRate) : ""}` : "source" };
+  } catch (e) {
+    sourceBuffers.delete(tabId);
+    buffer.stop();
+    throw e;
+  }
+}
+
+async function makeSourceClip(tabId, durationSeconds, postRollSeconds) {
+  const buffer = sourceBuffers.get(tabId);
+  if (!buffer) throw new Error("Not capturing this tab.");
+
+  const deliver = async () => {
+    const clip = buffer.makeClip(durationSeconds + (postRollSeconds || 0));
+    const url = URL.createObjectURL(clip.blob);
+    liveUrls.add(url);
+    chrome.runtime
+      .sendMessage({
+        target: "background",
+        type: "clip-ready",
+        tabId,
+        url,
+        sizeBytes: clip.blob.size,
+        lengthSeconds: clip.lengthSeconds,
+        extension: clip.extension
+      })
+      .catch(() => {});
+  };
+
+  if (postRollSeconds > 0) {
+    setTimeout(() => { deliver().catch(() => {}); }, postRollSeconds * 1000);
+    return { pending: true, readyInSeconds: postRollSeconds };
+  }
+  await deliver();
+  return { pending: false };
+}
 
 function pickMimeType(preference) {
   const candidates = {
@@ -235,18 +291,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, ...info });
           break;
         }
-        case "stop-capture":
+        case "start-source-capture": {
+          const info = await startSourceCapture(msg);
+          sendResponse({ ok: true, ...info });
+          break;
+        }
+        case "stop-capture": {
+          const buffer = sourceBuffers.get(msg.tabId);
+          if (buffer) {
+            buffer.stop();
+            sourceBuffers.delete(msg.tabId);
+          }
           await stopCapture(msg.tabId);
           sendResponse({ ok: true });
           break;
+        }
         case "make-clip": {
-          const res = makeClip(msg.tabId, msg.durationSeconds, msg.postRollSeconds);
+          const res = sourceBuffers.has(msg.tabId)
+            ? await makeSourceClip(msg.tabId, msg.durationSeconds, msg.postRollSeconds)
+            : makeClip(msg.tabId, msg.durationSeconds, msg.postRollSeconds);
           sendResponse({ ok: true, ...res });
           break;
         }
-        case "get-stats":
-          sendResponse({ ok: true, stats: getStats(msg.tabId) });
+        case "get-stats": {
+          const buffer = sourceBuffers.get(msg.tabId);
+          sendResponse({ ok: true, stats: buffer ? buffer.stats() : getStats(msg.tabId) });
           break;
+        }
         case "release-url":
           if (liveUrls.has(msg.url)) {
             URL.revokeObjectURL(msg.url);
