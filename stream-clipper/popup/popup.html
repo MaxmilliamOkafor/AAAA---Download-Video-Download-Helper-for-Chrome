@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>StreamClip Pro</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <img src="../icons/icon32.png" alt="" width="20" height="20" />
+      <span>StreamClip&nbsp;Pro</span>
+    </div>
+    <div class="header-actions">
+      <button id="clip-all" class="btn btn-ghost" title="Clip every monitored stream (Alt+Shift+C)" hidden>⚡ Clip all</button>
+      <button id="open-options" class="icon-btn" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <section id="current-tab" class="current-tab" hidden>
+    <div class="current-tab-info">
+      <span id="current-site" class="site-chip"></span>
+      <span id="current-title" class="tab-title"></span>
+    </div>
+    <button id="start-current" class="btn btn-primary">● Start monitoring</button>
+  </section>
+
+  <div id="error" class="error" hidden></div>
+
+  <section id="sessions"></section>
+
+  <div id="empty" class="empty" hidden>
+    <p><strong>No streams monitored yet.</strong></p>
+    <p>Open a Twitch, Kick or YouTube stream and press <em>Start monitoring</em>.
+       StreamClip keeps a rolling buffer while you watch — when something great
+       happens, click a clip button and the last N seconds are saved instantly.</p>
+    <p class="hint">Shortcut: <kbd>Alt</kbd>+<kbd>C</kbd> clips the current tab. Nothing is ever saved unless you ask.</p>
+  </div>
+
+  <template id="session-template">
+    <div class="session">
+      <div class="session-head">
+        <span class="site-chip"></span>
+        <span class="session-name"></span>
+        <span class="rec-dot" title="Recording buffer">●</span>
+        <button class="icon-btn stop" title="Stop monitoring">✕</button>
+      </div>
+      <div class="session-meta">
+        <span class="buffer-info"></span>
+      </div>
+      <div class="buffer-bar"><div class="buffer-fill"></div></div>
+      <div class="clip-row">
+        <span class="clip-label">Clip last:</span>
+        <div class="clip-buttons"></div>
+      </div>
+      <div class="custom-row">
+        <input class="custom-min" type="number" min="0" max="60" placeholder="min" />
+        <span>:</span>
+        <input class="custom-sec" type="number" min="0" max="59" placeholder="sec" />
+        <button class="btn btn-small custom-clip">Clip</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="../shared/settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

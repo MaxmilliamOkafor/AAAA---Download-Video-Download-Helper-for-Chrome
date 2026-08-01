@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>StreamClip Pro — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <img src="../icons/icon48.png" alt="" width="34" height="34" />
+      <div>
+        <h1>StreamClip Pro settings</h1>
+        <p class="sub">Everything here applies to newly started captures.</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Rolling buffer</h2>
+      <p class="desc">While a stream is monitored, StreamClip keeps the most recent footage in memory so you can clip backwards. Nothing is written to disk until you clip.</p>
+      <div class="grid">
+        <label>
+          <span>Buffer length <em>(how far back you can clip)</em></span>
+          <select id="bufferMinutes">
+            <option value="2">2 minutes</option>
+            <option value="5">5 minutes</option>
+            <option value="10">10 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="20">20 minutes</option>
+            <option value="30">30 minutes</option>
+          </select>
+        </label>
+        <label>
+          <span>Memory cap per stream <em>(oldest footage dropped first)</em></span>
+          <select id="maxBufferMB">
+            <option value="300">300 MB</option>
+            <option value="600">600 MB</option>
+            <option value="900">900 MB</option>
+            <option value="1500">1.5 GB</option>
+            <option value="2500">2.5 GB</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Clipping</h2>
+      <div class="grid">
+        <label>
+          <span>Quick-clip buttons <em>(seconds, comma-separated, up to 6)</em></span>
+          <input id="clipPresets" type="text" placeholder="30, 60, 120, 300" />
+        </label>
+        <label>
+          <span>Keyboard-shortcut clip length <em>(Alt+C)</em></span>
+          <div class="minsec">
+            <input id="defaultClipMin" type="number" min="0" max="60" /> <span>min</span>
+            <input id="defaultClipSec" type="number" min="0" max="59" /> <span>sec</span>
+          </div>
+        </label>
+      </div>
+      <label class="check">
+        <input id="customClipEnabled" type="checkbox" />
+        <span>Show the custom min:sec clip field on every stream card</span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Capture quality</h2>
+      <p class="desc">Capture quality can never exceed what the player renders — set the stream to its highest quality (1080p60, 4K…) for best results.</p>
+      <div class="grid">
+        <label>
+          <span>Resolution cap</span>
+          <select id="resolutionCap">
+            <option value="720">720p</option>
+            <option value="1080">1080p (recommended)</option>
+            <option value="1440">1440p</option>
+            <option value="2160">4K</option>
+          </select>
+        </label>
+        <label>
+          <span>Frame rate</span>
+          <select id="frameRate">
+            <option value="30">30 fps</option>
+            <option value="60">60 fps (recommended)</option>
+          </select>
+        </label>
+        <label>
+          <span>Video bitrate</span>
+          <select id="videoBitrateMbps">
+            <option value="6">6 Mbps — small files</option>
+            <option value="8">8 Mbps</option>
+            <option value="12">12 Mbps — recommended</option>
+            <option value="20">20 Mbps — high</option>
+            <option value="30">30 Mbps — maximum quality</option>
+          </select>
+        </label>
+        <label>
+          <span>Audio bitrate</span>
+          <select id="audioBitrateKbps">
+            <option value="128">128 kbps</option>
+            <option value="192">192 kbps (recommended)</option>
+            <option value="256">256 kbps</option>
+            <option value="320">320 kbps</option>
+          </select>
+        </label>
+        <label>
+          <span>Codec <em>(H.264 imports most easily into editors)</em></span>
+          <select id="codecPreference">
+            <option value="auto">Auto (best available)</option>
+            <option value="h264">H.264</option>
+            <option value="vp9">VP9</option>
+            <option value="vp8">VP8</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Saving</h2>
+      <div class="grid">
+        <label class="wide">
+          <span>File name template</span>
+          <input id="fileNameTemplate" type="text" />
+          <span class="tokens">Tokens: <code>{site}</code> <code>{streamer}</code> <code>{title}</code> <code>{date}</code> <code>{time}</code> <code>{length}</code> — use <code>/</code> for subfolders inside Downloads</span>
+        </label>
+      </div>
+      <label class="check">
+        <input id="askWhereToSave" type="checkbox" />
+        <span>Ask where to save each clip (instead of saving straight to Downloads)</span>
+      </label>
+      <p id="filename-preview" class="preview"></p>
+    </section>
+
+    <section class="card">
+      <h2>Notifications</h2>
+      <p class="desc">StreamClip never clips on its own — you stay in control, so there's nothing to spam you with. These control the confirmations.</p>
+      <label class="check">
+        <input id="notifyOnClipSaved" type="checkbox" />
+        <span>Show a notification when a clip is saved</span>
+      </label>
+      <label class="check">
+        <input id="notifyOnCaptureError" type="checkbox" />
+        <span>Warn me if a capture stops unexpectedly (stream ended, tab closed)</span>
+      </label>
+    </section>
+
+    <footer class="actions">
+      <span id="status" class="status"></span>
+      <button id="reset" class="btn btn-ghost">Reset to defaults</button>
+      <button id="save" class="btn btn-primary">Save settings</button>
+    </footer>
+  </main>
+
+  <script src="../shared/settings.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
