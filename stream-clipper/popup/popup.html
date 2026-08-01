@@ -82,12 +82,14 @@
         <span class="clip-label">Save the last</span>
         <div class="clip-buttons"></div>
       </div>
+      <!-- No ids here: this template is cloned once per monitored stream, so
+           ids would collide across cards. aria-label carries the naming. -->
       <div class="custom-row">
-        <label class="sr-only" for="cm">Minutes</label>
-        <input class="custom-min" id="cm" type="number" min="0" max="240" placeholder="min" aria-label="Minutes" />
+        <input class="custom-min" type="number" min="0" max="240" placeholder="min"
+               aria-label="Custom clip length, minutes" />
         <span aria-hidden="true">:</span>
-        <label class="sr-only" for="cs">Seconds</label>
-        <input class="custom-sec" id="cs" type="number" min="0" max="59" placeholder="sec" aria-label="Seconds" />
+        <input class="custom-sec" type="number" min="0" max="59" placeholder="sec"
+               aria-label="Custom clip length, seconds" />
         <button class="btn btn-ghost custom-clip">Clip</button>
       </div>
     </article>

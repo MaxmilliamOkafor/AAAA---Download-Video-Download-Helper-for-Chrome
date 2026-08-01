@@ -3,7 +3,7 @@
   "name": "StreamClip Pro — Live Stream Replay Clipper",
   "short_name": "StreamClip Pro",
   "description": "Instant-replay clipping for Twitch, Kick, YouTube and any live stream. Keep a rolling buffer of every stream you watch and save the best moments in one click — at full quality, only when you ask.",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "minimum_chrome_version": "116",
   "permissions": [
     "tabCapture",

@@ -90,129 +90,191 @@ function renderCurrentTab(sessions) {
   box.hidden = false;
 }
 
+// Cards persist between refreshes, keyed by tab.
+//
+// Refresh runs every 2s. Rebuilding the cards each time wiped whatever was
+// half-typed into the custom min:sec fields and stole focus mid-edit, which
+// made custom lengths impossible to enter. Cards are now created once and
+// updated in place; nothing that holds user input is ever replaced.
+const sessionCards = new Map();
+
 function renderSessions(sessions) {
   const container = $("#sessions");
-  container.textContent = "";
-  const tpl = $("#session-template");
+  const seen = new Set();
 
   for (const s of sessions) {
-    const node = tpl.content.firstElementChild.cloneNode(true);
-    const chip = node.querySelector(".site-chip");
-    chip.textContent = s.site;
-    chip.dataset.site = s.site;
-    node.querySelector(".session-name").textContent = s.streamer || s.title || "Stream";
-    node.querySelector(".session-name").title = s.title || "";
-
-    const stats = s.stats;
-    const info = node.querySelector(".buffer-info");
-    const modeBadge = node.querySelector(".mode-badge");
-    if (s.mode === "source") {
-      modeBadge.textContent = "⬥ SOURCE";
-      modeBadge.title = "Buffering the broadcaster's original segments — no re-encoding, no quality loss.";
-      modeBadge.dataset.mode = "source";
-    } else {
-      modeBadge.textContent = "◈ TAB";
-      modeBadge.title = stats && stats.cropped
-        ? "Recording the player only, re-encoded. Chat and page chrome are cropped out."
-        : "Recording what the tab renders. Works everywhere, but re-encodes.";
-      modeBadge.dataset.mode = "tab";
+    seen.add(s.tabId);
+    let card = sessionCards.get(s.tabId);
+    if (!card) {
+      card = createSessionCard(s);
+      sessionCards.set(s.tabId, card);
+      container.appendChild(card.node);
     }
-
-    // Exactly what a clip will contain, before you save one.
-    renderQualityLine(node.querySelector(".quality-line"), stats, s.mode);
-    if (stats) {
-      let text =
-        `Buffer: ${fmtDuration(stats.bufferedSeconds)} / ${fmtDuration(stats.maxBufferSeconds)}` +
-        ` · ${fmtBytes(stats.bufferedBytes)} · since ${new Date(stats.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-      if (stats.pendingClips > 0) text += ` · ⏳ ${stats.pendingClips} clip${stats.pendingClips > 1 ? "s" : ""} finishing`;
-      info.textContent = text;
-      const pct = Math.min(100, (stats.bufferedSeconds / stats.maxBufferSeconds) * 100);
-      node.querySelector(".buffer-fill").style.width = `${pct}%`;
-      node.querySelector(".buffer-bar").setAttribute("aria-valuenow", String(Math.round(pct)));
-    } else {
-      info.textContent = "Buffer warming up…";
-    }
-
-    // Ads: report both a live break and the total kept out of the buffer.
-    const adNote = node.querySelector(".ad-note");
-    const adSeconds = stats
-      ? stats.adSecondsExcluded || (stats.adSegmentsSkipped || 0) * 2
-      : 0;
-    if (stats && stats.inAdBreak) {
-      adNote.hidden = false;
-      adNote.dataset.live = "true";
-      adNote.textContent = "⏸ Ad break — excluded from clips";
-    } else if (adSeconds > 0) {
-      adNote.hidden = false;
-      adNote.dataset.live = "false";
-      adNote.textContent = `✓ ${scpFormatDuration(adSeconds)} of ads kept out of this buffer`;
-    } else {
-      adNote.hidden = true;
-    }
-
-    const btnBox = node.querySelector(".clip-buttons");
-    const bitrate = stats && stats.bitrateMbps ? stats.bitrateMbps : 0;
-    const available = stats ? stats.bufferedSeconds : 0;
-    const maxBuffer = stats ? stats.maxBufferSeconds : settings.bufferMinutes * 60;
-
-    for (const preset of settings.clipPresets) {
-      const b = document.createElement("button");
-      b.className = "btn";
-
-      const label = document.createElement("span");
-      label.textContent = scpFormatDuration(preset);
-      b.appendChild(label);
-
-      // Estimated size for this exact preset at the measured bitrate.
-      if (bitrate > 0) {
-        const est = document.createElement("span");
-        est.className = "est";
-        est.textContent = `~${scpFormatBytes(scpEstimateBytes(Math.min(preset, available || preset), bitrate))}`;
-        b.appendChild(est);
-      }
-
-      // A preset longer than the buffer can ever hold is still useful — it
-      // saves everything available — but say so rather than silently truncate.
-      if (preset > maxBuffer) {
-        b.classList.add("over-buffer");
-        b.title =
-          `Longer than the ${scpFormatDuration(maxBuffer)} buffer — saves the full buffer instead. ` +
-          `Raise "Buffer length" in Settings to clip ${scpFormatDuration(preset)}.`;
-      } else if (preset > available) {
-        b.classList.add("over-buffer");
-        b.title =
-          `Only ${scpFormatDuration(available)} buffered so far — saves what exists. ` +
-          `Ready in ${scpFormatDuration(preset - available)}.`;
-      } else {
-        b.title = settings.postRollSeconds > 0
-          ? `Save the last ${scpFormatDuration(preset)} plus ${settings.postRollSeconds}s of post-roll`
-          : `Save the last ${scpFormatDuration(preset)} of this stream`;
-      }
-
-      b.addEventListener("click", () => doClip(s.tabId, preset, b, label));
-      btnBox.appendChild(b);
-    }
-
-    const customRow = node.querySelector(".custom-row");
-    if (!settings.customClipEnabled) {
-      customRow.hidden = true;
-    } else {
-      customRow.querySelector(".custom-clip").addEventListener("click", () => {
-        const min = parseInt(customRow.querySelector(".custom-min").value, 10) || 0;
-        const sec = parseInt(customRow.querySelector(".custom-sec").value, 10) || 0;
-        const total = min * 60 + sec;
-        if (total < 5) { showError("Custom clip length must be at least 5 seconds."); return; }
-        doClip(s.tabId, total, customRow.querySelector(".custom-clip"));
-      });
-    }
-
-    node.querySelector(".stop").addEventListener("click", async () => {
-      await send({ type: "stop-capture", tabId: s.tabId });
-      refresh();
-    });
-
-    container.appendChild(node);
+    updateSessionCard(card, s);
   }
+
+  for (const [tabId, card] of [...sessionCards]) {
+    if (!seen.has(tabId)) {
+      card.node.remove();
+      sessionCards.delete(tabId);
+    }
+  }
+}
+
+function createSessionCard(session) {
+  const node = $("#session-template").content.firstElementChild.cloneNode(true);
+  const els = {
+    chip: node.querySelector(".site-chip"),
+    name: node.querySelector(".session-name"),
+    modeBadge: node.querySelector(".mode-badge"),
+    quality: node.querySelector(".quality-line"),
+    info: node.querySelector(".buffer-info"),
+    fill: node.querySelector(".buffer-fill"),
+    bar: node.querySelector(".buffer-bar"),
+    adNote: node.querySelector(".ad-note"),
+    btnBox: node.querySelector(".clip-buttons"),
+    customRow: node.querySelector(".custom-row"),
+    min: node.querySelector(".custom-min"),
+    sec: node.querySelector(".custom-sec"),
+    customBtn: node.querySelector(".custom-clip")
+  };
+  const tabId = session.tabId;
+
+  // Built once — only the size estimates and availability change per refresh.
+  const presets = settings.clipPresets.map(preset => {
+    const btn = document.createElement("button");
+    btn.className = "btn";
+    const label = document.createElement("span");
+    label.textContent = scpFormatDuration(preset);
+    const est = document.createElement("span");
+    est.className = "est";
+    est.hidden = true;
+    btn.append(label, est);
+    btn.addEventListener("click", () => doClip(tabId, preset, btn, label));
+    els.btnBox.appendChild(btn);
+    return { preset, btn, est };
+  });
+
+  const submitCustom = () => {
+    const min = parseInt(els.min.value, 10) || 0;
+    const sec = parseInt(els.sec.value, 10) || 0;
+    const total = min * 60 + sec;
+    if (total < 5) {
+      showError("Enter at least 5 seconds — for example 2 min 30 sec.");
+      els.min.focus();
+      return;
+    }
+    doClip(tabId, total, els.customBtn);
+  };
+  els.customBtn.addEventListener("click", submitCustom);
+  // Enter submits from either field, so a custom length needs no mouse.
+  for (const input of [els.min, els.sec]) {
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        submitCustom();
+      }
+    });
+  }
+
+  node.querySelector(".stop").addEventListener("click", async () => {
+    await send({ type: "stop-capture", tabId });
+    refresh();
+  });
+
+  return { node, els, presets };
+}
+
+function updateSessionCard(card, s) {
+  const { els, presets } = card;
+  const stats = s.stats;
+
+  if (els.chip.textContent !== s.site) {
+    els.chip.textContent = s.site;
+    els.chip.dataset.site = s.site;
+  }
+  const name = s.streamer || s.title || "Stream";
+  if (els.name.textContent !== name) {
+    els.name.textContent = name;
+    els.name.title = s.title || "";
+  }
+
+  if (s.mode === "source") {
+    els.modeBadge.textContent = "⬥ SOURCE";
+    els.modeBadge.title = "Buffering the broadcaster's original segments — no re-encoding, no quality loss.";
+    els.modeBadge.dataset.mode = "source";
+  } else {
+    els.modeBadge.textContent = "◈ TAB";
+    els.modeBadge.title = stats && stats.cropped
+      ? "Recording the player only, re-encoded. Chat and page chrome are cropped out."
+      : "Recording what the tab renders. Works everywhere, but re-encodes.";
+    els.modeBadge.dataset.mode = "tab";
+  }
+
+  // Exactly what a clip will contain, before you save one.
+  renderQualityLine(els.quality, stats, s.mode);
+
+  if (stats) {
+    let text =
+      `Buffer: ${scpFormatDuration(stats.bufferedSeconds)} / ${scpFormatDuration(stats.maxBufferSeconds)}` +
+      ` · ${fmtBytes(stats.bufferedBytes)} · since ${new Date(stats.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    if (stats.pendingClips > 0) {
+      text += ` · ⏳ ${stats.pendingClips} clip${stats.pendingClips > 1 ? "s" : ""} finishing`;
+    }
+    els.info.textContent = text;
+    const pct = Math.min(100, (stats.bufferedSeconds / stats.maxBufferSeconds) * 100);
+    els.fill.style.width = `${pct}%`;
+    els.bar.setAttribute("aria-valuenow", String(Math.round(pct)));
+  } else {
+    els.info.textContent = "Buffer warming up…";
+  }
+
+  // Ads: report both a live break and the total kept out of the buffer.
+  const adSeconds = stats ? stats.adSecondsExcluded || (stats.adSegmentsSkipped || 0) * 2 : 0;
+  if (stats && stats.inAdBreak) {
+    els.adNote.hidden = false;
+    els.adNote.dataset.live = "true";
+    els.adNote.textContent = "⏸ Ad break — excluded from clips";
+  } else if (adSeconds > 0) {
+    els.adNote.hidden = false;
+    els.adNote.dataset.live = "false";
+    els.adNote.textContent = `✓ ${scpFormatDuration(adSeconds)} of ads kept out of this buffer`;
+  } else {
+    els.adNote.hidden = true;
+  }
+
+  const bitrate = stats && stats.bitrateMbps ? stats.bitrateMbps : 0;
+  const available = stats ? stats.bufferedSeconds : 0;
+  const maxBuffer = stats ? stats.maxBufferSeconds : settings.bufferMinutes * 60;
+
+  for (const { preset, btn, est } of presets) {
+    if (bitrate > 0) {
+      est.hidden = false;
+      est.textContent = `~${scpFormatBytes(scpEstimateBytes(Math.min(preset, available || preset), bitrate))}`;
+    } else {
+      est.hidden = true;
+    }
+    // Longer than the buffer is still useful — it saves everything available —
+    // but say so rather than silently truncating.
+    if (preset > maxBuffer) {
+      btn.classList.add("over-buffer");
+      btn.title =
+        `Longer than the ${scpFormatDuration(maxBuffer)} buffer — saves the full buffer instead. ` +
+        `Raise "Buffer length" in Settings to clip ${scpFormatDuration(preset)}.`;
+    } else if (preset > available) {
+      btn.classList.add("over-buffer");
+      btn.title =
+        `Only ${scpFormatDuration(available)} buffered so far — saves what exists. ` +
+        `Ready in ${scpFormatDuration(preset - available)}.`;
+    } else {
+      btn.classList.remove("over-buffer");
+      btn.title = settings.postRollSeconds > 0
+        ? `Save the last ${scpFormatDuration(preset)} plus ${settings.postRollSeconds}s of post-roll`
+        : `Save the last ${scpFormatDuration(preset)} of this stream`;
+    }
+  }
+
+  els.customRow.hidden = !settings.customClipEnabled;
 }
 
 async function renderHistory() {
