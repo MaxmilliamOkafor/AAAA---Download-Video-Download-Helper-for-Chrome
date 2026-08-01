@@ -10,6 +10,8 @@ const SCP_DEFAULT_SETTINGS = {
   clipPresets: [30, 60, 120, 300], // seconds, shown as one-click buttons
   defaultClipSeconds: 60,          // used by the keyboard shortcut
   customClipEnabled: true,         // show the free-form min/sec field in the popup
+  postRollSeconds: 0,              // keep recording N extra seconds after a clip is requested
+  autoStartOnPopupOpen: true,      // opening the popup on a Twitch/Kick/YouTube stream starts monitoring
 
   // Capture quality
   resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (capture never exceeds what the player renders)
@@ -45,6 +47,8 @@ function scpNormalizeSettings(raw) {
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 6);
   if (s.clipPresets.length === 0) s.clipPresets = [...SCP_DEFAULT_SETTINGS.clipPresets];
+  s.postRollSeconds = clampNum(s.postRollSeconds, 0, 60);
+  s.autoStartOnPopupOpen = s.autoStartOnPopupOpen !== false;
   s.resolutionCap = SCP_RESOLUTIONS[s.resolutionCap] ? s.resolutionCap : 1080;
   s.frameRate = s.frameRate === 30 ? 30 : 60;
   s.videoBitrateMbps = clampNum(s.videoBitrateMbps, 4, 40);
@@ -106,6 +110,25 @@ function scpStreamerFromTab(url, title) {
   return cleaned || "stream";
 }
 
+// True for URLs that look like a watchable stream page (used for auto-start).
+function scpIsLikelyStreamPage(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const seg = u.pathname.split("/").filter(Boolean);
+    if (host.endsWith("twitch.tv") || host.endsWith("kick.com")) {
+      const reserved = ["directory", "categories", "category", "search", "settings", "browse", "wallet", "p"];
+      return seg.length >= 1 && !reserved.includes(seg[0].toLowerCase());
+    }
+    if (host.endsWith("youtube.com")) {
+      return u.pathname === "/watch" || seg[0] === "live" || seg.includes("live");
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function scpSanitizeFileComponent(name) {
   return String(name)
     .replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_")
@@ -142,6 +165,7 @@ if (typeof globalThis !== "undefined") {
     scpSaveSettings,
     scpSiteFromUrl,
     scpStreamerFromTab,
+    scpIsLikelyStreamPage,
     scpSanitizeFileComponent,
     scpBuildFileName
   });

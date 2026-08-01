@@ -17,6 +17,11 @@
     </div>
   </header>
 
+  <nav class="tabs">
+    <button id="tab-streams" class="tab active">Streams</button>
+    <button id="tab-history" class="tab">Clip history</button>
+  </nav>
+
   <section id="current-tab" class="current-tab" hidden>
     <div class="current-tab-info">
       <span id="current-site" class="site-chip"></span>
@@ -36,6 +41,29 @@
        happens, click a clip button and the last N seconds are saved instantly.</p>
     <p class="hint">Shortcut: <kbd>Alt</kbd>+<kbd>C</kbd> clips the current tab. Nothing is ever saved unless you ask.</p>
   </div>
+
+  <section id="history-view" hidden>
+    <div class="history-toolbar">
+      <span id="history-count" class="history-count"></span>
+      <button id="clear-history" class="btn btn-ghost">Clear list</button>
+    </div>
+    <div id="history-list"></div>
+    <div id="history-empty" class="empty" hidden>
+      <p><strong>No clips yet.</strong></p>
+      <p>Saved clips appear here with a shortcut to their file.</p>
+    </div>
+  </section>
+
+  <template id="history-item-template">
+    <div class="history-item">
+      <div class="history-main">
+        <span class="site-chip"></span>
+        <span class="history-name"></span>
+      </div>
+      <div class="history-meta"></div>
+      <button class="btn btn-ghost show-file" title="Reveal the file in your file manager">📂 Show file</button>
+    </div>
+  </template>
 
   <template id="session-template">
     <div class="session">

@@ -10,6 +10,10 @@ const OFFSCREEN_URL = "offscreen/offscreen.html";
 const sessions = new Map();
 // downloadId -> objectUrl (revoked in offscreen once the download finishes)
 const pendingDownloads = new Map();
+// Tabs the user explicitly stopped — auto-start won't re-arm them until navigation.
+const manualStops = new Set();
+
+const HISTORY_LIMIT = 50;
 
 let creatingOffscreen = null;
 
@@ -51,9 +55,12 @@ function notify(id, title, message) {
   });
 }
 
-async function startCapture(tabId) {
+async function startCapture(tabId, { auto = false } = {}) {
   if (sessions.has(tabId)) {
     return { ok: false, error: "This tab is already being monitored." };
+  }
+  if (auto && manualStops.has(tabId)) {
+    return { ok: false, error: "auto-start suppressed (stopped manually)", suppressed: true };
   }
   const tab = await chrome.tabs.get(tabId);
   if (!tab || !/^https?:/.test(tab.url || "")) {
@@ -97,8 +104,9 @@ async function startCapture(tabId) {
   return { ok: true };
 }
 
-async function stopCapture(tabId, { silent = false } = {}) {
+async function stopCapture(tabId, { silent = false, byUser = false } = {}) {
   if (!sessions.has(tabId)) return { ok: true };
+  if (byUser) manualStops.add(tabId);
   await chrome.runtime
     .sendMessage({ target: "offscreen", type: "stop-capture", tabId })
     .catch(() => {});
@@ -120,7 +128,8 @@ async function requestClip(tabId, durationSeconds) {
     target: "offscreen",
     type: "make-clip",
     tabId,
-    durationSeconds: dur
+    durationSeconds: dur,
+    postRollSeconds: settings.postRollSeconds
   }).catch(e => ({ ok: false, error: e.message }));
   if (!res || !res.ok) {
     return { ok: false, error: (res && res.error) || "Clip failed." };
@@ -154,6 +163,15 @@ async function handleClipReady(msg) {
       conflictAction: "uniquify"
     });
     pendingDownloads.set(downloadId, msg.url);
+    await recordClipHistory({
+      downloadId,
+      filename,
+      site: session.site || "Stream",
+      streamer: session.streamer || "stream",
+      lengthSeconds: msg.lengthSeconds,
+      sizeBytes: msg.sizeBytes,
+      time: Date.now()
+    });
     if (settings.notifyOnClipSaved) {
       const mb = (msg.sizeBytes / (1024 * 1024)).toFixed(1);
       notify(
@@ -169,6 +187,20 @@ async function handleClipReady(msg) {
     }
   }
 }
+
+async function recordClipHistory(entry) {
+  const { clipHistory = [] } = await chrome.storage.local.get("clipHistory");
+  clipHistory.unshift(entry);
+  if (clipHistory.length > HISTORY_LIMIT) clipHistory.length = HISTORY_LIMIT;
+  await chrome.storage.local.set({ clipHistory });
+}
+
+// Clicking a "Clip saved" notification reveals the file in the file manager.
+chrome.notifications.onClicked.addListener(id => {
+  const m = /^clip-(\d+)$/.exec(id);
+  if (m) chrome.downloads.show(Number(m[1]));
+  chrome.notifications.clear(id);
+});
 
 chrome.downloads.onChanged.addListener(delta => {
   if (!pendingDownloads.has(delta.id)) return;
@@ -203,10 +235,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
       case "start-capture":
-        sendResponse(await startCapture(msg.tabId));
+        sendResponse(await startCapture(msg.tabId, { auto: !!msg.auto }));
         break;
       case "stop-capture":
-        sendResponse(await stopCapture(msg.tabId));
+        sendResponse(await stopCapture(msg.tabId, { byUser: true }));
         break;
       case "make-clip":
         sendResponse(await requestClip(msg.tabId, msg.durationSeconds));
@@ -256,14 +288,26 @@ chrome.commands.onCommand.addListener(async command => {
       // Not on a monitored tab (e.g. you're editing in another window) — clip everything.
       await clipAll(settings.defaultClipSeconds);
     }
+    return;
+  }
+  if (command === "toggle-monitor") {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab) return;
+    if (sessions.has(tab.id)) {
+      await stopCapture(tab.id, { byUser: true });
+    } else {
+      await startCapture(tab.id);
+    }
   }
 });
 
 // Keep session titles fresh and drop sessions whose tabs disappear.
 chrome.tabs.onRemoved.addListener(tabId => {
+  manualStops.delete(tabId);
   if (sessions.has(tabId)) stopCapture(tabId, { silent: true });
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) manualStops.delete(tabId); // new page — auto-start may apply again
   const s = sessions.get(tabId);
   if (s && changeInfo.title) s.title = changeInfo.title;
 });

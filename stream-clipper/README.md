@@ -26,6 +26,11 @@ video in a tab.
   up to 30 Mbps, audio up to 320 kbps, codec preference (H.264 / VP9 / VP8).
   Capture quality matches what the player renders — set the stream to its
   highest quality (1080p60, 4K) for best results.
+- **Editor-ready files.** Clip timestamps are rebased to start at 0:00
+  (in-place WebM timecode patching, covered by unit tests), so clips show the
+  correct duration and scrub cleanly in players and editors.
+- **Post-roll.** Optionally keep recording 5–60 extra seconds after you hit
+  clip, so the reaction/aftermath makes it into the same file.
 
 ## Install (developer mode)
 
@@ -39,12 +44,14 @@ video in a tab.
 
 | Action | How |
 |---|---|
-| Start buffering a stream | Popup → **Start monitoring** on the current tab |
+| Start buffering a stream | Open the popup on a stream page (auto-starts by default), or **Start monitoring**, or **Alt+M** |
 | Save the last 30s / 1m / 2m / 5m | Click a quick-clip button on the stream's card |
 | Save a custom length | Enter min : sec on the card → **Clip** |
 | Clip the current tab instantly | **Alt+C** (uses your default clip length) |
 | Clip every monitored stream at once | **Alt+Shift+C** or **⚡ Clip all** |
-| Stop monitoring | ✕ on the stream's card (buffer is discarded) |
+| Include the aftermath | Set a post-roll in Settings — clips save after +N extra seconds |
+| Find a saved clip | Popup → **Clip history** → 📂 Show file (or click the save notification) |
+| Stop monitoring | ✕ on the stream's card or **Alt+M** (buffer is discarded) |
 
 Clips land in your Downloads folder, organized by the filename template
 (default: `StreamClips/{site}/{streamer} - {date} {time} ({length}s).webm`).
@@ -58,7 +65,8 @@ notifications.
 manifest.json          MV3 manifest (tabCapture, offscreen, downloads, storage)
 background.js          Service worker: session registry, downloads, hotkeys, notifications
 offscreen/             Capture engine: one MediaRecorder per tab, rolling chunk
-                       buffer with time + memory pruning, clip assembly
+                       buffer with time + memory pruning, clip assembly,
+                       WebM timecode rebasing (webm-rebase.js, unit-tested)
 popup/                 Control center: one card per monitored stream
 options/               Full settings page (chrome.storage.sync)
 shared/settings.js     Settings model, filename templating, site/streamer detection
@@ -75,9 +83,6 @@ audible.
 - Clips are WebM (H.264/VP9 + Opus). Every major editor (Premiere, DaVinci,
   CapCut) imports WebM; choose H.264 in settings for the widest compatibility.
 - Clip boundaries are accurate to ~1 second (chunk granularity).
-- The duration shown by some players for a clip may be off until the file is
-  re-exported by an editor, because the buffer's timestamps don't start at
-  zero. The footage itself is complete.
 - DRM-protected video (Widevine) captures as a black frame — that's a browser
   guarantee, not a bug. Standard Twitch/Kick/YouTube live streams are fine.
 - Capture records what the tab renders. For pristine quality: set the player

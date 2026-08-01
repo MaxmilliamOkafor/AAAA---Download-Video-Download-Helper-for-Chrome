@@ -1,6 +1,8 @@
 // StreamClip Pro — offscreen capture document.
 // Holds one MediaRecorder per monitored tab, keeps a rolling buffer of
 // timesliced chunks, and assembles "last N seconds" clips on demand.
+// Clips get their WebM timecodes rebased to t=0 (webm-rebase.js) so they
+// play and scrub correctly in players and editors.
 
 const CHUNK_MS = 1000; // recorder timeslice — 1s granularity for clip boundaries
 
@@ -73,6 +75,7 @@ async function startCapture({ tabId, streamId, settings }) {
     chunks: [],        // [{ t: epoch ms, blob }]
     bytes: 0,
     startedAt: Date.now(),
+    pendingClips: new Set(), // post-roll clips waiting on their timer
     stopping: false
   };
   captures.set(tabId, state);
@@ -106,8 +109,14 @@ function pruneBuffer(state) {
   const maxAgeMs = state.settings.bufferMinutes * 60 * 1000;
   const maxBytes = state.settings.maxBufferMB * 1024 * 1024;
   const cutoff = Date.now() - maxAgeMs;
+  // Never prune footage a pending post-roll clip still needs.
+  let protectedFrom = Infinity;
+  for (const p of state.pendingClips) {
+    protectedFrom = Math.min(protectedFrom, p.requestedAt - p.durationSeconds * 1000);
+  }
   while (
     state.chunks.length > 1 &&
+    state.chunks[0].t < protectedFrom &&
     (state.chunks[0].t < cutoff || state.bytes > maxBytes)
   ) {
     const dropped = state.chunks.shift();
@@ -115,32 +124,65 @@ function pruneBuffer(state) {
   }
 }
 
-function makeClip(tabId, durationSeconds) {
+// Requests a clip. With post-roll, assembly is deferred so the aftermath of
+// the moment is included; the clip-ready message fires when it's done.
+function makeClip(tabId, durationSeconds, postRollSeconds) {
   const state = captures.get(tabId);
   if (!state) throw new Error("Not capturing this tab.");
   if (!state.headerChunk || state.chunks.length === 0) {
     throw new Error("The buffer is still warming up — try again in a couple of seconds.");
   }
-  // Flush the in-flight chunk so the clip includes up-to-the-moment footage.
-  try { state.recorder.requestData(); } catch { /* not critical */ }
 
-  const cutoff = Date.now() - durationSeconds * 1000;
-  const selected = state.chunks.filter(c => c.t >= cutoff);
-  const parts = [state.headerChunk, ...selected.map(c => c.blob)];
-  const blob = new Blob(parts, { type: state.recorder.mimeType || "video/webm" });
+  const pending = {
+    requestedAt: Date.now(),
+    durationSeconds,
+    postRollSeconds: postRollSeconds || 0,
+    timer: null
+  };
+  state.pendingClips.add(pending);
+
+  if (pending.postRollSeconds > 0) {
+    pending.timer = setTimeout(() => {
+      finishPendingClip(state, pending);
+    }, pending.postRollSeconds * 1000);
+    return { pending: true, readyInSeconds: pending.postRollSeconds };
+  }
+  finishPendingClip(state, pending);
+  return { pending: false };
+}
+
+async function finishPendingClip(state, pending) {
+  if (!state.pendingClips.has(pending)) return;
+  state.pendingClips.delete(pending);
+  if (pending.timer) clearTimeout(pending.timer);
+
+  // Flush the in-flight chunk so the clip includes up-to-the-moment footage.
+  try { state.recorder.requestData(); } catch { /* recorder may be stopped */ }
+  await new Promise(r => setTimeout(r, 150)); // let ondataavailable land
+
+  const startCut = pending.requestedAt - pending.durationSeconds * 1000;
+  const endCut = pending.requestedAt + pending.postRollSeconds * 1000 + CHUNK_MS;
+  const selected = state.chunks.filter(c => c.t >= startCut && c.t <= endCut);
+  if (selected.length === 0 || !state.headerChunk) return;
+
+  const raw = new Blob([state.headerChunk, ...selected.map(c => c.blob)], {
+    type: state.recorder.mimeType || "video/webm"
+  });
+  const blob = await scpRebaseWebmBlob(raw);
   const url = URL.createObjectURL(blob);
   liveUrls.add(url);
 
-  const actualSeconds = Math.min(
-    durationSeconds,
-    Math.round(selected.length * (CHUNK_MS / 1000)) || durationSeconds
-  );
-  return {
-    url,
-    sizeBytes: blob.size,
-    lengthSeconds: actualSeconds,
-    extension: "webm"
-  };
+  chrome.runtime
+    .sendMessage({
+      target: "background",
+      type: "clip-ready",
+      tabId: state.tabId,
+      url,
+      sizeBytes: blob.size,
+      lengthSeconds: Math.round(selected.length * (CHUNK_MS / 1000)),
+      extension: "webm"
+    })
+    .catch(() => {});
 }
 
 function getStats(tabId) {
@@ -151,25 +193,33 @@ function getStats(tabId) {
     bufferedSeconds: Math.round((Date.now() - oldest) / 1000),
     maxBufferSeconds: state.settings.bufferMinutes * 60,
     bufferedBytes: state.bytes,
+    pendingClips: state.pendingClips.size,
     mimeType: state.recorder.mimeType,
     startedAt: state.startedAt
   };
 }
 
-function stopCapture(tabId) {
+async function flushPendingClips(state) {
+  // Capture is ending — salvage any post-roll clips with what we have now.
+  const pendings = [...state.pendingClips];
+  for (const p of pendings) await finishPendingClip(state, p);
+}
+
+async function stopCapture(tabId) {
   const state = captures.get(tabId);
   if (!state) return;
   state.stopping = true;
+  await flushPendingClips(state);
   try { state.recorder.stop(); } catch { /* already stopped */ }
   state.stream.getTracks().forEach(t => t.stop());
   state.audioCtx.close().catch(() => {});
   captures.delete(tabId);
 }
 
-function endCapture(tabId, error) {
+async function endCapture(tabId, error) {
   const state = captures.get(tabId);
   if (!state || state.stopping) return;
-  stopCapture(tabId);
+  await stopCapture(tabId);
   chrome.runtime
     .sendMessage({ target: "background", type: "capture-ended", tabId, error })
     .catch(() => {});
@@ -186,16 +236,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "stop-capture":
-          stopCapture(msg.tabId);
+          await stopCapture(msg.tabId);
           sendResponse({ ok: true });
           break;
         case "make-clip": {
-          const clip = makeClip(msg.tabId, msg.durationSeconds);
-          // Hand the blob URL to the background, which owns downloads.
-          chrome.runtime
-            .sendMessage({ target: "background", type: "clip-ready", tabId: msg.tabId, ...clip })
-            .catch(() => {});
-          sendResponse({ ok: true, lengthSeconds: clip.lengthSeconds, sizeBytes: clip.sizeBytes });
+          const res = makeClip(msg.tabId, msg.durationSeconds, msg.postRollSeconds);
+          sendResponse({ ok: true, ...res });
           break;
         }
         case "get-stats":
