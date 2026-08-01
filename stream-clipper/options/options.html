@@ -114,10 +114,12 @@
         <strong>Tab</strong> records what the tab renders — it works on every site, but re-encodes.
       </p>
       <p class="desc warn">
-        <strong>Bandwidth:</strong> source mode downloads the stream a second time, in parallel with the
-        player, so it roughly doubles your usage — and buffering a rendition higher than the one you're
-        watching costs more still. If your connection is tight and the stream stutters while monitoring,
-        lower the cap below or switch to tab mode.
+        <strong>Quality has no ceiling.</strong> By default StreamClip buffers the very best rendition a
+        stream offers — 1440p, 4K, whatever exists — regardless of the quality you're watching at. Each
+        stream card in the popup shows a picker listing every rendition, so you can always see and change
+        what is being captured. The only cost is bandwidth: source mode downloads the stream a second time
+        alongside the player, so if your connection is tight and the stream stutters, pick a lower
+        rendition in the popup or switch to tab mode.
       </p>
       <div class="grid">
         <label>
@@ -129,13 +131,13 @@
           </select>
         </label>
         <label>
-          <span>Source quality cap <em>(bounds bandwidth and file size)</em></span>
+          <span>Source quality <em>(starting rendition — switch per stream in the popup)</em></span>
           <select id="sourceHeightCap">
-            <option value="1080">Up to 1080p (recommended)</option>
-            <option value="720">Up to 720p — lightest on bandwidth</option>
-            <option value="1440">Up to 1440p</option>
-            <option value="2160">Up to 4K</option>
-            <option value="0">Always the stream's best — highest bandwidth</option>
+            <option value="0">Best available — no limit (recommended)</option>
+            <option value="2160">Cap at 4K</option>
+            <option value="1440">Cap at 1440p</option>
+            <option value="1080">Cap at 1080p</option>
+            <option value="720">Cap at 720p — lightest on bandwidth</option>
           </select>
         </label>
       </div>

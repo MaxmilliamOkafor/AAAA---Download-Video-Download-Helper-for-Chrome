@@ -16,11 +16,11 @@ const SCP_DEFAULT_SETTINGS = {
 
   // Capture quality
   captureMode: "auto",        // auto (source when available) | source (never re-encode) | tab
-  // Source mode fetches the stream a second time alongside the player, so the
-  // rendition it buffers directly determines how much extra bandwidth it uses.
-  // Capping at 1080p keeps that cost predictable; 0 means "always the best
-  // rendition", which on a 4K stream can double or triple your usage.
-  sourceHeightCap: 1080,
+  // 0 = always buffer the stream's best rendition, whatever it is. Source mode
+  // fetches the stream a second time alongside the player, so an uncapped 4K
+  // rendition costs real bandwidth — capping is available per taste, but the
+  // default is maximum quality.
+  sourceHeightCap: 0,
   // Tab mode: record the player only, dropping chat, sidebar and page chrome.
   // This also raises effective quality — the whole bitrate covers video
   // instead of being spent on static page furniture.

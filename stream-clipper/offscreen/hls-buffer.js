@@ -18,6 +18,7 @@ class ScpHlsBuffer {
 
     this.mediaUrl = null;      // resolved rendition playlist
     this.variant = null;       // chosen rendition metadata
+    this.variants = [];        // every rendition the stream offers, best first
     this.initSegment = null;   // { url, bytes } for fMP4
     this.segments = [];        // [{ seq, duration, t, bytes: Uint8Array }]
     this.bytes = 0;
@@ -35,9 +36,9 @@ class ScpHlsBuffer {
   async start() {
     const text = await this.#fetchText(this.playlistUrl);
     if (scpIsMasterPlaylist(text)) {
-      const variants = scpParseMasterPlaylist(text, this.playlistUrl);
+      this.variants = scpParseMasterPlaylist(text, this.playlistUrl);
       const cap = this.settings.sourceHeightCap || 0;
-      this.variant = scpPickVariant(variants, cap);
+      this.variant = scpPickVariant(this.variants, cap);
       if (!this.variant) throw new Error("No playable renditions in the stream playlist.");
       this.mediaUrl = this.variant.url;
     } else {
@@ -49,6 +50,35 @@ class ScpHlsBuffer {
       variant: this.variant,
       mediaUrl: this.mediaUrl
     };
+  }
+
+  // Switches which rendition is buffered. Renditions differ in resolution and
+  // encoder state, so segments from two of them cannot be concatenated into a
+  // playable file — the buffer restarts empty at the new quality.
+  async switchTo(url) {
+    const next = this.variants.find(v => v.url === url);
+    if (!next) throw new Error("That quality is not offered by this stream.");
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+
+    this.variant = next;
+    this.mediaUrl = url;
+    this.segments = [];
+    this.seenSeq.clear();
+    this.bytes = 0;
+    this.initSegment = null;
+    this.primed = false;
+    this.startedAt = Date.now();
+    this.consecutiveFailures = 0;
+
+    await this.#poll();
+    this.#scheduleNext();
+    return { quality: this.#label(next) };
+  }
+
+  #label(v) {
+    if (!v) return "source";
+    const fps = v.frameRate ? Math.round(v.frameRate) : 0;
+    return `${v.height}p${fps && fps > 30 ? fps : ""}`;
   }
 
   stop() {
@@ -76,6 +106,16 @@ class ScpHlsBuffer {
       container: this.container,
       adSegmentsSkipped: this.adSegmentsSkipped,
       inAdBreak: this.inAdBreak,
+      // Everything the stream offers, so the popup can present a real picker.
+      currentUrl: this.mediaUrl,
+      variants: this.variants.map(v => ({
+        url: v.url,
+        label: this.#label(v),
+        height: v.height,
+        frameRate: v.frameRate ? Math.round(v.frameRate) : 0,
+        bandwidthMbps: v.bandwidth ? v.bandwidth / 1e6 : 0,
+        codec: scpCodecLabel(v.codecs)
+      })),
       // Prefer the rendition's advertised bandwidth; fall back to measured.
       bitrateMbps: v && v.bandwidth
         ? v.bandwidth / 1e6

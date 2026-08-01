@@ -135,6 +135,29 @@ afterwards how much advertising was kept out; the clip history records how much
 was removed from each saved file. Turn it off in Settings if you ever want the
 raw recording.
 
+### Choosing quality — no ceiling
+
+Each stream card carries a format tag and a quality picker listing every
+rendition the stream actually offers, best first:
+
+```
+⬥ SOURCE  [TS][★ 2160p60 · 25.0 Mbps · H.264 ⌄]  3840×2160 · 60 fps · H.264  (no re-encode)
+```
+
+By default StreamClip buffers the **best rendition available** — 1440p, 4K,
+whatever exists — regardless of the quality you happen to be watching at.
+There is no quality cap unless you set one. The ★ marks the best option, and
+the picker's tooltip warns if you are not on it.
+
+Switching rendition restarts that stream's buffer, because segments at two
+different resolutions cannot be joined into one playable file. If more than
+30 seconds is buffered you get a confirmation first, so a mis-click never
+silently discards footage — clip what you have, then switch.
+
+The only cost of maximum quality is bandwidth: source mode downloads the
+stream a second time alongside the player. If a stream stutters, pick a lower
+rendition from the same dropdown or switch to tab mode.
+
 ### Seeing quality before you save
 
 Each stream card shows exactly what a clip will contain, live:

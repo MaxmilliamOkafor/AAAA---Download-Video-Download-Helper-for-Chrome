@@ -517,6 +517,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         }
+        case "switch-quality": {
+          const buffer = sourceBuffers.get(msg.tabId);
+          if (!buffer) throw new Error("Quality switching needs source mode.");
+          const info = await buffer.switchTo(msg.url);
+          sendResponse({ ok: true, ...info });
+          break;
+        }
         case "peek-rect":
           sendResponse({
             ok: true,

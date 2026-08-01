@@ -434,6 +434,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "clip-all":
         sendResponse(await clipAll(msg.durationSeconds));
         break;
+      case "switch-quality": {
+        const res = await chrome.runtime
+          .sendMessage({ target: "offscreen", type: "switch-quality", tabId: msg.tabId, url: msg.url })
+          .catch(e => ({ ok: false, error: e.message }));
+        const session = sessions.get(msg.tabId);
+        if (res && res.ok && session) {
+          session.quality = res.quality;
+          await persistSessions();
+        }
+        sendResponse(res || { ok: false, error: "Could not switch quality." });
+        break;
+      }
       case "get-sessions": {
         const list = await Promise.all(
           [...sessions.values()].map(async s => {

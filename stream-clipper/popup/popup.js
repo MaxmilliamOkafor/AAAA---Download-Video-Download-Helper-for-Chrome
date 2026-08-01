@@ -132,6 +132,8 @@ function createSessionCard(session) {
     fill: node.querySelector(".buffer-fill"),
     bar: node.querySelector(".buffer-bar"),
     adNote: node.querySelector(".ad-note"),
+    formatTag: node.querySelector(".format-tag"),
+    qualitySelect: node.querySelector(".quality-select"),
     btnBox: node.querySelector(".clip-buttons"),
     customRow: node.querySelector(".custom-row"),
     min: node.querySelector(".custom-min"),
@@ -197,6 +199,33 @@ function createSessionCard(session) {
     });
   }
 
+  // Switching rendition restarts the buffer at the new quality, because
+  // segments of different resolutions cannot be joined into one playable file.
+  els.qualitySelect.addEventListener("change", async ev => {
+    const url = ev.target.value;
+    const buffered = card.bufferedSeconds;
+    if (buffered > 30) {
+      const ok = confirm(
+        `Switch quality?\n\nThe ${scpFormatDuration(buffered)} already buffered will be discarded — ` +
+        `footage at two different resolutions can't be joined into one clip.\n\n` +
+        `Clip what you have first if you need it.`
+      );
+      if (!ok) {
+        ev.target.value = card.currentUrl || "";
+        return;
+      }
+    }
+    els.qualitySelect.disabled = true;
+    const res = await send({ type: "switch-quality", tabId, url })
+      .catch(e => ({ ok: false, error: e.message }));
+    els.qualitySelect.disabled = false;
+    if (!res || !res.ok) {
+      showError((res && res.error) || "Could not switch quality.");
+      ev.target.value = card.currentUrl || "";
+    }
+    refresh();
+  });
+
   node.querySelector(".stop").addEventListener("click", async () => {
     await send({ type: "stop-capture", tabId });
     refresh();
@@ -233,6 +262,8 @@ function updateSessionCard(card, s) {
       : "Recording what the tab renders. Works everywhere, but re-encodes.";
     els.modeBadge.dataset.mode = "tab";
   }
+
+  renderQualityPicker(card, s, stats);
 
   // Exactly what a clip will contain, before you save one.
   renderQualityLine(els.quality, stats, s.mode);
@@ -346,6 +377,60 @@ async function renderHistory() {
     });
     list.appendChild(node);
   }
+}
+
+// Format tag + quality dropdown listing every rendition the stream offers,
+// best first, so the highest available quality is always visible and one
+// click away. Options are rebuilt only when the stream's list actually
+// changes, so the dropdown never resets while it is open.
+function renderQualityPicker(card, s, stats) {
+  const { formatTag, qualitySelect } = card.els;
+  const variants = (stats && stats.variants) || [];
+
+  if (s.mode !== "source" || variants.length === 0) {
+    // Tab mode has no renditions to choose between — show what it is recording.
+    formatTag.hidden = !stats || !stats.height;
+    qualitySelect.hidden = true;
+    if (stats && stats.height) {
+      formatTag.textContent = "WEBM";
+      formatTag.title = "Re-encoded from the rendered tab";
+    }
+    return;
+  }
+
+  formatTag.hidden = false;
+  formatTag.textContent = (stats.container || "ts").toUpperCase();
+  formatTag.title = stats.container === "mp4"
+    ? "Original fMP4 segments — no re-encoding"
+    : "Original MPEG-TS segments — no re-encoding";
+
+  qualitySelect.hidden = false;
+  card.currentUrl = stats.currentUrl || "";
+
+  const signature = variants.map(v => v.url).join("|");
+  if (card.variantSignature !== signature) {
+    card.variantSignature = signature;
+    qualitySelect.textContent = "";
+    variants.forEach((v, i) => {
+      const opt = document.createElement("option");
+      opt.value = v.url;
+      const bits = [v.label];
+      if (v.bandwidthMbps > 0) bits.push(`${v.bandwidthMbps.toFixed(1)} Mbps`);
+      if (v.codec) bits.push(v.codec);
+      opt.textContent = (i === 0 ? "★ " : "") + bits.join(" · ");
+      opt.title = i === 0 ? "Best quality this stream offers" : "";
+      qualitySelect.appendChild(opt);
+    });
+  }
+  // Don't fight the user while the dropdown is focused/open.
+  if (document.activeElement !== qualitySelect && card.currentUrl) {
+    qualitySelect.value = card.currentUrl;
+  }
+  const best = variants[0];
+  const onBest = best && card.currentUrl === best.url;
+  qualitySelect.title = onBest
+    ? "Buffering the best quality this stream offers"
+    : `Not the best available — ${best ? best.label : "a higher rendition"} is offered`;
 }
 
 // Renders "1920×1080 · 60 fps · H.264 · 6.2 Mbps" for the active capture.
