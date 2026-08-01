@@ -20,6 +20,10 @@ const SCP_DEFAULT_SETTINGS = {
   // Capping at 1080p keeps that cost predictable; 0 means "always the best
   // rendition", which on a 4K stream can double or triple your usage.
   sourceHeightCap: 1080,
+  // Tab mode: record the player only, dropping chat, sidebar and page chrome.
+  // This also raises effective quality — the whole bitrate covers video
+  // instead of being spent on static page furniture.
+  cropToVideo: true,
   resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (tab mode: never exceeds what the player renders)
   frameRate: 60,              // 30 | 60
   videoBitrateMbps: 8,        // 4..40 — higher costs CPU and memory while encoding live
@@ -56,6 +60,7 @@ function scpNormalizeSettings(raw) {
   s.postRollSeconds = clampNum(s.postRollSeconds, 0, 60);
   s.autoStartOnPopupOpen = s.autoStartOnPopupOpen !== false;
   if (!["auto", "source", "tab"].includes(s.captureMode)) s.captureMode = "auto";
+  s.cropToVideo = s.cropToVideo !== false;
   s.sourceHeightCap = [0, 720, 1080, 1440, 2160].includes(Number(s.sourceHeightCap))
     ? Number(s.sourceHeightCap)
     : 0;

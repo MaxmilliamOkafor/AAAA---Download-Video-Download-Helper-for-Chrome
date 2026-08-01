@@ -120,7 +120,11 @@
 
     <section class="card">
       <h2>Tab-capture quality</h2>
-      <p class="desc">These apply only when recording rendered video (tab mode). Source mode ignores them — it never re-encodes. In tab mode, quality can't exceed what the player shows, so set the stream to its highest quality first.</p>
+      <p class="desc">These apply only when recording rendered video (tab mode). Source mode ignores them — it never re-encodes, and always captures the video alone. In tab mode, quality can't exceed what the player shows, so set the stream to its highest quality first.</p>
+      <label class="check" style="margin-top: 0; margin-bottom: 14px">
+        <input id="cropToVideo" type="checkbox" />
+        <span>Record the player only — crop out chat, sidebar and page chrome (also removes letterbox bars, and spends the whole bitrate on video)</span>
+      </label>
       <div class="grid">
         <label>
           <span>Resolution cap</span>

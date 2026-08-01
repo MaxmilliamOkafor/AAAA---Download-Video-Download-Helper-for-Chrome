@@ -114,6 +114,39 @@ Auto mode (the default) uses source when it's available and silently falls
 back to tab when it isn't. Choose **Source only** if you'd rather be told the
 quality isn't available than get a re-encoded clip.
 
+### Clips contain the video only
+
+Neither mode puts chat, the sidebar or page chrome in your clips:
+
+- **Source mode** never could — HLS segments are the broadcast video itself,
+  with no page around it. This is another reason to prefer it.
+- **Tab mode** now locates the player in the page and crops the capture to it,
+  following theater mode, fullscreen and window resizes, and trimming
+  letterbox/pillarbox bars so the clip is exactly the picture. On a typical
+  Twitch layout that removes about half the frame — and because the crop keeps
+  the captured pixels rather than scaling them down, the entire bitrate is
+  spent on video instead of static page furniture. Turn it off in Settings if
+  you ever want the whole page.
+
+### Monitoring several streamers at once
+
+Monitor as many tabs as you like — Twitch, Kick and YouTube side by side. Each
+tab is an independent buffer with its own card, and **⚡ Clip all** /
+**Alt+Shift+C** clips every one of them at the same instant.
+
+All captures share a single offscreen document, which is what made earlier
+versions fragile here. Fixed in 1.3.0: starting a second stream could collide
+with creating that shared document and report the tab as already monitored,
+concurrent starts on one tab (auto-start plus a click) raced into the same
+error, and teardown paths could close the shared document while other tabs
+were still recording. Starts are now idempotent and de-duplicated per tab, and
+the document is only closed once it confirms nothing is left recording.
+
+Practical limits are bandwidth and CPU, not the extension: in source mode each
+stream adds its own download, and in tab mode each adds a live encode. Four or
+five 1080p streams is comfortable on a decent machine; beyond that, lower the
+source quality cap or drop tab mode to 30 fps.
+
 ### Troubleshooting
 
 **The stream stutters while monitoring.** Source mode downloads the stream a

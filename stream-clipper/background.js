@@ -23,11 +23,21 @@ const playlistsByTab = new Map();
 const HISTORY_LIMIT = 50;
 const PLAYLIST_TTL_MS = 5 * 60 * 1000;
 
-let hydrated = false;
+// Starts in flight, keyed by tab. The popup's auto-start and a user click can
+// fire together; both must resolve to the same outcome instead of the second
+// one reporting the tab as already monitored.
+const startsInFlight = new Map();
 
-async function hydrate() {
-  if (hydrated) return;
-  hydrated = true;
+let hydratePromise = null;
+
+// Shared promise, not a boolean: concurrent callers must all wait for the
+// same hydration to finish, or the later ones proceed against empty state.
+function hydrate() {
+  if (!hydratePromise) hydratePromise = doHydrate();
+  return hydratePromise;
+}
+
+async function doHydrate() {
   const stored = await chrome.storage.session.get(["sessions", "playlists", "manualStops"]);
   for (const [k, v] of Object.entries(stored.playlists || {})) playlistsByTab.set(Number(k), v);
   for (const id of stored.manualStops || []) manualStops.add(id);
@@ -100,8 +110,7 @@ async function getPlaylistForTab(tabId) {
 let creatingOffscreen = null;
 
 async function ensureOffscreenDocument() {
-  const has = await chrome.offscreen.hasDocument();
-  if (has) return;
+  if (await chrome.offscreen.hasDocument()) return;
   if (!creatingOffscreen) {
     creatingOffscreen = chrome.offscreen
       .createDocument({
@@ -110,14 +119,50 @@ async function ensureOffscreenDocument() {
         justification:
           "Records tab audio/video into a rolling replay buffer so the user can save clips of live streams they are watching."
       })
+      .catch(err => {
+        // Two starts racing (or a restarted worker) can both pass the
+        // hasDocument() check. A document that already exists is exactly
+        // what the caller wanted, so this is success, not failure.
+        if (!/single offscreen document/i.test(err && err.message)) throw err;
+      })
       .finally(() => (creatingOffscreen = null));
   }
   await creatingOffscreen;
 }
 
+// Every capture shares one offscreen document, so closing it kills them all.
+// Only close when the document itself confirms nothing is left recording —
+// the registry here can lag behind, and trusting it has torn down live
+// captures for other tabs.
 async function maybeCloseOffscreen() {
-  if (sessions.size === 0 && pendingDownloads.size === 0) {
-    try { await chrome.offscreen.closeDocument(); } catch { /* already closed */ }
+  if (pendingDownloads.size > 0) return;
+  if (!(await chrome.offscreen.hasDocument())) return;
+  const live = await chrome.runtime
+    .sendMessage({ target: "offscreen", type: "list-captures" })
+    .catch(() => null);
+  if (live && live.ok && live.tabIds.length > 0) return;
+  if (sessions.size > 0) return;
+  try { await chrome.offscreen.closeDocument(); } catch { /* already closed */ }
+}
+
+// Injects the player locator and waits briefly for its first report, so the
+// crop is known before recording starts rather than a second into the clip.
+async function injectVideoLocator(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content/video-locator.js"]
+    });
+  } catch (e) {
+    return; // restricted page, or no host access — fall back to full-tab
+  }
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline) {
+    const geometry = await chrome.runtime
+      .sendMessage({ target: "offscreen", type: "peek-rect", tabId })
+      .catch(() => null);
+    if (geometry && geometry.ok && geometry.has) return;
+    await new Promise(r => setTimeout(r, 150));
   }
 }
 
@@ -137,9 +182,20 @@ function notify(id, title, message) {
   });
 }
 
-async function startCapture(tabId, { auto = false } = {}) {
+function startCapture(tabId, opts = {}) {
+  // Collapse concurrent starts for the same tab onto one attempt.
+  const inFlight = startsInFlight.get(tabId);
+  if (inFlight) return inFlight;
+  const attempt = doStartCapture(tabId, opts).finally(() => startsInFlight.delete(tabId));
+  startsInFlight.set(tabId, attempt);
+  return attempt;
+}
+
+async function doStartCapture(tabId, { auto = false } = {}) {
   if (sessions.has(tabId)) {
-    return { ok: false, error: "This tab is already being monitored." };
+    // Already running is the state the caller asked for — not an error.
+    const s = sessions.get(tabId);
+    return { ok: true, already: true, mode: s.mode, quality: s.quality };
   }
   if (auto && manualStops.has(tabId)) {
     return { ok: false, error: "auto-start suppressed (stopped manually)", suppressed: true };
@@ -204,6 +260,8 @@ async function startCapture(tabId, { auto = false } = {}) {
   }
 
   // Universal fallback: record what the tab renders.
+  // Locate the player first so the capture can be cropped to the video alone.
+  if (settings.cropToVideo) await injectVideoLocator(tabId);
   const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
   res = await chrome.runtime.sendMessage({
     target: "offscreen",
@@ -395,6 +453,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await handleCaptureEnded(msg);
         sendResponse({ ok: true });
         break;
+      case "video-rect": {
+        // From the injected locator in a stream tab. Forward the geometry to
+        // the capture engine, which owns the crop.
+        const tabId = sender && sender.tab && sender.tab.id;
+        if (tabId != null) {
+          const { type, target, ...geometry } = msg;
+          await chrome.runtime
+            .sendMessage({ target: "offscreen", type: "video-rect", tabId, geometry })
+            .catch(() => {});
+        }
+        sendResponse({ ok: true });
+        break;
+      }
       default:
         sendResponse({ ok: false, error: `Unknown message: ${msg.type}` });
     }

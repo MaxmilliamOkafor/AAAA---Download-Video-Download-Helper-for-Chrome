@@ -24,6 +24,7 @@ function fillForm(s) {
   $("#autoStartOnPopupOpen").checked = s.autoStartOnPopupOpen;
   $("#captureMode").value = s.captureMode;
   setSelectValue($("#sourceHeightCap"), s.sourceHeightCap);
+  $("#cropToVideo").checked = s.cropToVideo;
   setSelectValue($("#resolutionCap"), s.resolutionCap);
   setSelectValue($("#frameRate"), s.frameRate);
   setSelectValue($("#videoBitrateMbps"), s.videoBitrateMbps);
@@ -52,6 +53,7 @@ function readForm() {
     autoStartOnPopupOpen: $("#autoStartOnPopupOpen").checked,
     captureMode: $("#captureMode").value,
     sourceHeightCap: Number($("#sourceHeightCap").value),
+    cropToVideo: $("#cropToVideo").checked,
     resolutionCap: Number($("#resolutionCap").value),
     frameRate: Number($("#frameRate").value),
     videoBitrateMbps: Number($("#videoBitrateMbps").value),

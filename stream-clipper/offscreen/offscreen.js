@@ -67,6 +67,108 @@ async function makeSourceClip(tabId, durationSeconds, postRollSeconds) {
   return { pending: false };
 }
 
+// tabId -> latest player geometry reported by the injected locator
+const msgRects = new Map();
+
+// Builds a cropped video track from the full-tab capture.
+//
+// The captured frame corresponds to the tab viewport, so the locator's
+// CSS-pixel rect scales into frame pixels by the ratio between the two. The
+// canvas is sized to the cropped region's real pixel size, which preserves
+// every captured pixel of the player: cropping raises effective resolution
+// rather than lowering it, since the whole bitrate now covers video only.
+async function createCropper(stream, geometry, settings) {
+  const track = stream.getVideoTracks()[0];
+  const videoEl = document.createElement("video");
+  videoEl.srcObject = new MediaStream([track]);
+  videoEl.muted = true;
+  videoEl.playsInline = true;
+  await videoEl.play();
+
+  // Wait for real frame dimensions before sizing anything.
+  if (!videoEl.videoWidth) {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("no frames from tab capture")), 5000);
+      videoEl.addEventListener("loadedmetadata", () => { clearTimeout(timer); resolve(); }, { once: true });
+    });
+  }
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+
+  const state = { geometry, sx: 0, sy: 0, sw: 0, sh: 0 };
+
+  function recomputeCrop() {
+    const g = state.geometry;
+    const frameW = videoEl.videoWidth;
+    const frameH = videoEl.videoHeight;
+    if (!g || !g.found || !frameW || !frameH) {
+      state.sx = 0; state.sy = 0; state.sw = frameW; state.sh = frameH;
+    } else {
+      const scaleX = frameW / g.viewport.width;
+      const scaleY = frameH / g.viewport.height;
+      state.sx = Math.round(g.rect.x * scaleX);
+      state.sy = Math.round(g.rect.y * scaleY);
+      state.sw = Math.round(g.rect.width * scaleX);
+      state.sh = Math.round(g.rect.height * scaleY);
+    }
+    // Clamp inside the frame; a stale rect must never read out of bounds.
+    state.sx = Math.max(0, Math.min(state.sx, frameW - 2));
+    state.sy = Math.max(0, Math.min(state.sy, frameH - 2));
+    state.sw = Math.max(2, Math.min(state.sw, frameW - state.sx));
+    state.sh = Math.max(2, Math.min(state.sh, frameH - state.sy));
+
+    // Even dimensions keep H.264 encoders happy.
+    const cap = SCP_RESOLUTIONS[settings.resolutionCap] || SCP_RESOLUTIONS[1080];
+    let outW = state.sw;
+    let outH = state.sh;
+    if (outH > cap.height) {
+      outW = Math.round((outW * cap.height) / outH);
+      outH = cap.height;
+    }
+    outW -= outW % 2;
+    outH -= outH % 2;
+    if (canvas.width !== outW || canvas.height !== outH) {
+      canvas.width = outW;
+      canvas.height = outH;
+    }
+  }
+
+  recomputeCrop();
+
+  // Offscreen documents are never rendered, so requestAnimationFrame does not
+  // fire — drive the draw loop from a timer instead.
+  const frameInterval = 1000 / settings.frameRate;
+  const timer = setInterval(() => {
+    if (videoEl.readyState < 2) return;
+    try {
+      ctx.drawImage(
+        videoEl,
+        state.sx, state.sy, state.sw, state.sh,
+        0, 0, canvas.width, canvas.height
+      );
+    } catch { /* transient decode gap */ }
+  }, frameInterval);
+
+  const canvasStream = canvas.captureStream(settings.frameRate);
+  for (const audio of stream.getAudioTracks()) canvasStream.addTrack(audio);
+
+  return {
+    stream: canvasStream,
+    update(geometry) {
+      state.geometry = geometry;
+      recomputeCrop();
+    },
+    dimensions: () => ({ width: canvas.width, height: canvas.height }),
+    stop() {
+      clearInterval(timer);
+      videoEl.pause();
+      videoEl.srcObject = null;
+      canvasStream.getVideoTracks().forEach(t => t.stop());
+    }
+  };
+}
+
 function pickMimeType(preference) {
   const candidates = {
     h264: ['video/webm;codecs="h264,opus"', 'video/x-matroska;codecs="avc1,opus"'],
@@ -114,8 +216,21 @@ async function startCapture({ tabId, streamId, settings }) {
   const source = audioCtx.createMediaStreamSource(stream);
   source.connect(audioCtx.destination);
 
+  // Crop to the player when we know where it is, so clips contain the video
+  // alone instead of the whole page (chat, sidebar, headers).
+  let recordedStream = stream;
+  let cropper = null;
+  if (settings.cropToVideo && msgRects.has(tabId)) {
+    try {
+      cropper = await createCropper(stream, msgRects.get(tabId), settings);
+      recordedStream = cropper.stream;
+    } catch (e) {
+      console.warn("StreamClip: crop unavailable, recording full tab:", e.message);
+    }
+  }
+
   const mimeType = pickMimeType(settings.codecPreference);
-  const recorder = new MediaRecorder(stream, {
+  const recorder = new MediaRecorder(recordedStream, {
     ...(mimeType ? { mimeType } : {}),
     videoBitsPerSecond: settings.videoBitrateMbps * 1_000_000,
     audioBitsPerSecond: settings.audioBitrateKbps * 1000
@@ -126,6 +241,7 @@ async function startCapture({ tabId, streamId, settings }) {
     stream,
     recorder,
     audioCtx,
+    cropper,
     settings,
     headerChunk: null, // first chunk: container header + init segment
     chunks: [],        // [{ t: epoch ms, blob }]
@@ -158,7 +274,12 @@ async function startCapture({ tabId, streamId, settings }) {
   });
 
   recorder.start(CHUNK_MS);
-  return { mimeType: recorder.mimeType || mimeType || "video/webm" };
+  const dims = cropper ? cropper.dimensions() : null;
+  return {
+    mimeType: recorder.mimeType || mimeType || "video/webm",
+    cropped: !!cropper,
+    quality: dims ? `${dims.height}p` : null
+  };
 }
 
 function pruneBuffer(state) {
@@ -267,9 +388,11 @@ async function stopCapture(tabId) {
   state.stopping = true;
   await flushPendingClips(state);
   try { state.recorder.stop(); } catch { /* already stopped */ }
+  if (state.cropper) state.cropper.stop();
   state.stream.getTracks().forEach(t => t.stop());
   state.audioCtx.close().catch(() => {});
   captures.delete(tabId);
+  msgRects.delete(tabId);
 }
 
 async function endCapture(tabId, error) {
@@ -318,6 +441,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, stats: buffer ? buffer.stats() : getStats(msg.tabId) });
           break;
         }
+        case "video-rect": {
+          // Player geometry from the injected locator; keep the crop in step
+          // with theater mode, fullscreen and window resizes.
+          msgRects.set(msg.tabId, msg.geometry);
+          const state = captures.get(msg.tabId);
+          if (state && state.cropper) state.cropper.update(msg.geometry);
+          sendResponse({ ok: true });
+          break;
+        }
+        case "peek-rect":
+          sendResponse({
+            ok: true,
+            has: msgRects.has(msg.tabId) && !!(msgRects.get(msg.tabId) || {}).found
+          });
+          break;
         case "list-captures":
           // The service worker asks this after a restart to rebuild its
           // session registry — this document is the authority on what is live.
