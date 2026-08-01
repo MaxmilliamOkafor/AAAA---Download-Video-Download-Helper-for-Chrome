@@ -152,6 +152,14 @@ measured from the live buffer rather than assumed.
 Every quick-clip button also carries its own estimated file size at the current
 bitrate, so a 30m clip tells you it's ~1.7 GB before you click it.
 
+### Saving everything recorded
+
+Every stream card has a permanent **All** button that saves the entire buffer —
+everything recorded since monitoring started. It needs no configuration, can
+never ask for more than exists, and shows the exact length and size it will
+produce (`All · 47m · ~2.8 GB`). It is the one button that always gives you the
+maximum footage available.
+
 ### Long clips (30 minutes, 1 hour and beyond)
 
 Quick-clip presets accept `s` / `m` / `h`, so `30s, 1m, 5m, 30m, 1h` is a valid
@@ -167,6 +175,10 @@ things make this visible instead of surprising:
 - A preset longer than the buffer is drawn dashed and dimmed, and its tooltip
   says what you'd actually get. It stays clickable and saves everything
   available; it never fails silently.
+- **Quick setup** buttons in Settings move buffer length, memory cap and clip
+  buttons together in one click, so the combination is always coherent:
+  *Light* (10 min / 600 MB), *Long clips* (1 hour / 4 GB) and *Marathon*
+  (2 hours / 8 GB). Save, then restart monitoring for the new buffer to apply.
 
 For hour-long buffers, source mode is much lighter than tab mode: it stores the
 broadcast's own compressed segments rather than a live re-encode.

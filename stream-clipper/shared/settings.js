@@ -7,7 +7,8 @@ const SCP_DEFAULT_SETTINGS = {
   maxBufferMB: 600,           // hard memory cap per stream (oldest footage dropped first)
 
   // Clipping
-  clipPresets: [30, 60, 300, 600], // seconds, shown as one-click buttons
+  // Seconds, shown as one-click buttons alongside a permanent "All" button.
+  clipPresets: [60, 300, 1800, 3600, 7200],
   defaultClipSeconds: 60,          // used by the keyboard shortcut
   customClipEnabled: true,         // show the free-form min/sec field in the popup
   postRollSeconds: 0,              // keep recording N extra seconds after a clip is requested

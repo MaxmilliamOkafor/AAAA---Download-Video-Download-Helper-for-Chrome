@@ -139,6 +139,26 @@ function createSessionCard(session) {
     customBtn: node.querySelector(".custom-clip")
   };
   const tabId = session.tabId;
+  const card = { node, els, presets: [], bufferedSeconds: 0, maxBufferSeconds: 0 };
+
+  // "All" saves the entire buffer — everything recorded since monitoring
+  // started, however long that is. It needs no configuration and can never be
+  // over-buffer, so it always yields the maximum footage available.
+  const allBtn = document.createElement("button");
+  allBtn.className = "btn btn-all";
+  const allLabel = document.createElement("span");
+  allLabel.textContent = "All";
+  const allEst = document.createElement("span");
+  allEst.className = "est";
+  allEst.hidden = true;
+  allBtn.append(allLabel, allEst);
+  allBtn.addEventListener("click", () => {
+    // Ask for the full buffer window; assembly is bounded by what exists.
+    const seconds = Math.max(5, card.maxBufferSeconds || card.bufferedSeconds || 60);
+    doClip(tabId, seconds, allBtn, allLabel);
+  });
+  els.btnBox.appendChild(allBtn);
+  card.all = { btn: allBtn, label: allLabel, est: allEst };
 
   // Built once — only the size estimates and availability change per refresh.
   const presets = settings.clipPresets.map(preset => {
@@ -182,12 +202,15 @@ function createSessionCard(session) {
     refresh();
   });
 
-  return { node, els, presets };
+  card.presets = presets;
+  return card;
 }
 
 function updateSessionCard(card, s) {
   const { els, presets } = card;
   const stats = s.stats;
+  card.bufferedSeconds = stats ? stats.bufferedSeconds : 0;
+  card.maxBufferSeconds = stats ? stats.maxBufferSeconds : settings.bufferMinutes * 60;
 
   if (els.chip.textContent !== s.site) {
     els.chip.textContent = s.site;
@@ -246,6 +269,20 @@ function updateSessionCard(card, s) {
   const bitrate = stats && stats.bitrateMbps ? stats.bitrateMbps : 0;
   const available = stats ? stats.bufferedSeconds : 0;
   const maxBuffer = stats ? stats.maxBufferSeconds : settings.bufferMinutes * 60;
+
+  // "All" advertises exactly how much footage exists right now.
+  if (card.all) {
+    const have = available;
+    card.all.btn.title = have > 0
+      ? `Save everything buffered — ${scpFormatDuration(have)} recorded so far`
+      : "Save everything buffered once recording has started";
+    if (bitrate > 0 && have > 0) {
+      card.all.est.hidden = false;
+      card.all.est.textContent = `${scpFormatDuration(have)} · ~${scpFormatBytes(scpEstimateBytes(have, bitrate))}`;
+    } else {
+      card.all.est.hidden = true;
+    }
+  }
 
   for (const { preset, btn, est } of presets) {
     if (bitrate > 0) {

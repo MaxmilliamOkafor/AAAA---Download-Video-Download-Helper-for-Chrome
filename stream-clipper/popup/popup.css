@@ -364,6 +364,21 @@ body {
   color: #fff;
 }
 .clip-buttons .btn.over-buffer { opacity: 0.6; border-style: dashed; }
+
+/* "All" is never over-buffer — it saves whatever exists, so it stays solid. */
+.clip-buttons .btn-all {
+  flex-basis: 100%;
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--text);
+  font-weight: 700;
+}
+.clip-buttons .btn-all:hover:not(:disabled) {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.clip-buttons .btn-all:hover:not(:disabled) .est { color: rgba(255, 255, 255, 0.85); }
 .clip-buttons .btn .est {
   display: block;
   margin-top: 2px;

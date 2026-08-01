@@ -114,6 +114,24 @@ function flashStatus(text) {
 async function init() {
   fillForm(await scpLoadSettings());
 
+  // Buffer length, memory and clip buttons have to move together — a 2 hour
+  // button is meaningless behind a 10 minute buffer, and a long buffer is
+  // silently truncated by a small memory cap.
+  const QUICK_SETUPS = {
+    "#preset-light":    { bufferMinutes: 10,  maxBufferMB: 600,  clipPresets: [30, 60, 300, 600] },
+    "#preset-long":     { bufferMinutes: 60,  maxBufferMB: 4000, clipPresets: [60, 300, 1800, 3600] },
+    "#preset-marathon": { bufferMinutes: 120, maxBufferMB: 8000, clipPresets: [60, 300, 1800, 3600, 7200] }
+  };
+  for (const [sel, values] of Object.entries(QUICK_SETUPS)) {
+    $(sel).addEventListener("click", () => {
+      setSelectValue($("#bufferMinutes"), values.bufferMinutes);
+      setSelectValue($("#maxBufferMB"), values.maxBufferMB);
+      $("#clipPresets").value = values.clipPresets.map(scpFormatDuration).join(", ");
+      updateBufferEstimate();
+      flashStatus("Applied — press Save settings to keep it");
+    });
+  }
+
   $("#fileNameTemplate").addEventListener("input", updatePreview);
   for (const id of ["#bufferMinutes", "#maxBufferMB", "#videoBitrateMbps"]) {
     $(id).addEventListener("change", updateBufferEstimate);
