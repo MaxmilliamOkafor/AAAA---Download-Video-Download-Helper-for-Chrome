@@ -1,0 +1,251 @@
+:root {
+  --bg: #12141a;
+  --panel: #1b1e27;
+  --panel-2: #232735;
+  --text: #e8eaf0;
+  --muted: #9aa1b2;
+  --accent: #7c5cff;
+  --accent-2: #9d86ff;
+  --rec: #ff4d5e;
+  --ok: #37c979;
+  --border: #2c3040;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 380px;
+  max-height: 580px;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 2;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+}
+
+.header-actions { display: flex; gap: 6px; align-items: center; }
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.05s ease;
+}
+.btn:hover { filter: brightness(1.12); }
+.btn:active { transform: scale(0.98); }
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-ghost {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.btn-small { padding: 5px 12px; font-size: 12px; background: var(--accent); color: #fff; }
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.icon-btn:hover { background: var(--panel-2); color: var(--text); }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 0;
+}
+.history-count { color: var(--muted); font-size: 12px; }
+#history-list { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+.history-item {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.history-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-meta { color: var(--muted); font-size: 11.5px; }
+.history-item .show-file { align-self: flex-start; }
+
+.current-tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.current-tab-info { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.tab-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  max-width: 170px;
+}
+
+.site-chip {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--accent-2);
+}
+.site-chip[data-site="Twitch"] { color: #bf94ff; }
+.site-chip[data-site="Kick"] { color: #53fc18; }
+.site-chip[data-site="YouTube"] { color: #ff6b6b; }
+
+.error {
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 77, 94, 0.12);
+  border: 1px solid rgba(255, 77, 94, 0.4);
+  color: #ffb3ba;
+  font-size: 12px;
+}
+
+#sessions { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.session {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.session-head { display: flex; align-items: center; gap: 8px; }
+.session-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rec-dot {
+  color: var(--rec);
+  animation: pulse 1.6s ease-in-out infinite;
+  font-size: 11px;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.session-meta { margin-top: 4px; color: var(--muted); font-size: 11.5px; }
+
+.buffer-bar {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.buffer-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.4s ease;
+}
+
+.clip-row { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.clip-label { color: var(--muted); font-size: 12px; flex: none; }
+.clip-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.clip-buttons .btn { padding: 5px 11px; font-size: 12px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+.clip-buttons .btn:hover { border-color: var(--accent); color: var(--accent-2); }
+.clip-buttons .btn.flash { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+.custom-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.custom-row input {
+  width: 52px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+}
+.custom-row input:focus { outline: 1px solid var(--accent); }
+
+.empty { padding: 26px 22px; color: var(--muted); text-align: center; }
+.empty p { margin-bottom: 10px; }
+.empty strong { color: var(--text); }
+.hint { font-size: 11.5px; }
+kbd {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10.5px;
+}

@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "StreamClip Pro — Live Stream Replay Clipper",
+  "short_name": "StreamClip Pro",
+  "description": "Instant-replay clipping for Twitch, Kick, YouTube and any live stream. Keep a rolling buffer of every stream you watch and save the best moments in one click — at full quality, only when you ask.",
+  "version": "1.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "downloads",
+    "storage",
+    "notifications",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "StreamClip Pro",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "clip-active-tab": {
+      "suggested_key": {
+        "default": "Alt+C"
+      },
+      "description": "Clip the current tab (or all monitored tabs if the current tab isn't monitored)"
+    },
+    "clip-all-tabs": {
+      "suggested_key": {
+        "default": "Alt+Shift+C"
+      },
+      "description": "Clip every monitored stream at once"
+    },
+    "toggle-monitor": {
+      "suggested_key": {
+        "default": "Alt+M"
+      },
+      "description": "Start or stop monitoring the current tab"
+    }
+  }
+}
