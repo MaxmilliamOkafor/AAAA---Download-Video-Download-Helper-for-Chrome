@@ -90,6 +90,12 @@
         save bandwidth and still clip in 1080p60. It needs the site to use HLS (Twitch and Kick always do).
         <strong>Tab</strong> records what the tab renders — it works on every site, but re-encodes.
       </p>
+      <p class="desc warn">
+        <strong>Bandwidth:</strong> source mode downloads the stream a second time, in parallel with the
+        player, so it roughly doubles your usage — and buffering a rendition higher than the one you're
+        watching costs more still. If your connection is tight and the stream stutters while monitoring,
+        lower the cap below or switch to tab mode.
+      </p>
       <div class="grid">
         <label>
           <span>Mode</span>
@@ -100,13 +106,13 @@
           </select>
         </label>
         <label>
-          <span>Source quality cap <em>(bounds file size on 4K streams)</em></span>
+          <span>Source quality cap <em>(bounds bandwidth and file size)</em></span>
           <select id="sourceHeightCap">
-            <option value="0">Always the stream's best</option>
-            <option value="2160">Up to 4K</option>
+            <option value="1080">Up to 1080p (recommended)</option>
+            <option value="720">Up to 720p — lightest on bandwidth</option>
             <option value="1440">Up to 1440p</option>
-            <option value="1080">Up to 1080p</option>
-            <option value="720">Up to 720p</option>
+            <option value="2160">Up to 4K</option>
+            <option value="0">Always the stream's best — highest bandwidth</option>
           </select>
         </label>
       </div>

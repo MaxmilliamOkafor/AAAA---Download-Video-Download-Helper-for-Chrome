@@ -27,6 +27,7 @@ class ScpHlsBuffer {
     this.pollTimer = null;
     this.consecutiveFailures = 0;
     this.container = "ts";     // ts | mp4
+    this.primed = false;       // false until the live-edge starting point is set
   }
 
   async start() {
@@ -119,7 +120,21 @@ class ScpHlsBuffer {
         }
       }
 
-      const fresh = playlist.segments.filter(s => !this.seenSeq.has(s.seq));
+      let fresh = playlist.segments.filter(s => !this.seenSeq.has(s.seq));
+
+      // On the very first poll the playlist already holds a full sliding
+      // window (~10 segments on Twitch). Downloading it all at once bursts
+      // tens of megabytes against the player and visibly stutters the stream.
+      // Start at the live edge instead: mark the backlog seen and buffer
+      // forward from now. Nothing is lost — monitoring only ever captures
+      // footage from the moment it starts.
+      if (!this.primed) {
+        this.primed = true;
+        const edge = fresh.slice(-1);
+        for (const seg of fresh.slice(0, -1)) this.seenSeq.add(seg.seq);
+        fresh = edge;
+      }
+
       for (const seg of fresh) {
         if (this.stopped) return;
         try {

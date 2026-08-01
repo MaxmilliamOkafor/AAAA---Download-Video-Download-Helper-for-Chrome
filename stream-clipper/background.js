@@ -6,7 +6,12 @@ importScripts("shared/settings.js", "shared/hls-parse.js");
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 
-// tabId -> { tabId, title, url, site, streamer, startedAt, status, lastError }
+// MV3 terminates this service worker after ~30s idle, which would wipe any
+// plain in-memory state while the offscreen document keeps recording. All
+// cross-invocation state therefore lives in chrome.storage.session, with
+// these Maps acting only as a warm cache for the current invocation.
+
+// tabId -> { tabId, title, url, site, streamer, startedAt, status, mode, lastError }
 const sessions = new Map();
 // downloadId -> objectUrl (revoked in offscreen once the download finishes)
 const pendingDownloads = new Map();
@@ -17,6 +22,49 @@ const playlistsByTab = new Map();
 
 const HISTORY_LIMIT = 50;
 const PLAYLIST_TTL_MS = 5 * 60 * 1000;
+
+let hydrated = false;
+
+async function hydrate() {
+  if (hydrated) return;
+  hydrated = true;
+  const stored = await chrome.storage.session.get(["sessions", "playlists", "manualStops"]);
+  for (const [k, v] of Object.entries(stored.playlists || {})) playlistsByTab.set(Number(k), v);
+  for (const id of stored.manualStops || []) manualStops.add(id);
+  for (const [k, v] of Object.entries(stored.sessions || {})) sessions.set(Number(k), v);
+
+  // The offscreen document is the authority on what is actually recording.
+  // Reconcile against it so a restarted worker neither forgets live captures
+  // nor advertises dead ones.
+  if (sessions.size > 0) {
+    const live = await chrome.runtime
+      .sendMessage({ target: "offscreen", type: "list-captures" })
+      .catch(() => null);
+    if (live && live.ok) {
+      const liveIds = new Set(live.tabIds);
+      for (const tabId of [...sessions.keys()]) {
+        if (!liveIds.has(tabId)) sessions.delete(tabId);
+      }
+    } else {
+      // No offscreen document means nothing is recording.
+      sessions.clear();
+    }
+    await persistSessions();
+    updateBadge();
+  }
+}
+
+async function persistSessions() {
+  await chrome.storage.session.set({ sessions: Object.fromEntries(sessions) });
+}
+
+async function persistPlaylists() {
+  await chrome.storage.session.set({ playlists: Object.fromEntries(playlistsByTab) });
+}
+
+async function persistManualStops() {
+  await chrome.storage.session.set({ manualStops: [...manualStops] });
+}
 
 // Watch for the stream's own HLS playlist so we can buffer original segments
 // instead of re-encoding the rendered tab. Observation only — nothing is
@@ -31,12 +79,19 @@ chrome.webRequest.onBeforeRequest.addListener(
     const isMasterish = /master|playlist/i.test(url);
     if (existing && !isMasterish && Date.now() - existing.seenAt < 30_000) return;
     playlistsByTab.set(details.tabId, { url, seenAt: Date.now() });
+    persistPlaylists().catch(() => {});
   },
   { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] }
 );
 
-function getPlaylistForTab(tabId) {
-  const entry = playlistsByTab.get(tabId);
+async function getPlaylistForTab(tabId) {
+  let entry = playlistsByTab.get(tabId);
+  if (!entry) {
+    // A restarted worker may not have seen the request itself.
+    const { playlists = {} } = await chrome.storage.session.get("playlists");
+    entry = playlists[tabId];
+    if (entry) playlistsByTab.set(tabId, entry);
+  }
   if (!entry) return null;
   if (Date.now() - entry.seenAt > PLAYLIST_TTL_MS) return null;
   return entry.url;
@@ -109,9 +164,10 @@ async function startCapture(tabId, { auto = false } = {}) {
     lastError: null
   };
   sessions.set(tabId, meta);
+  await persistSessions();
   updateBadge();
 
-  const playlistUrl = getPlaylistForTab(tabId);
+  const playlistUrl = await getPlaylistForTab(tabId);
   const wantSource = settings.captureMode !== "tab" && !!playlistUrl;
   let res = null;
 
@@ -128,6 +184,7 @@ async function startCapture(tabId, { auto = false } = {}) {
       meta.status = "recording";
       meta.mode = "source";
       meta.quality = res.quality || null;
+      await persistSessions();
       updateBadge();
       return { ok: true, mode: "source", quality: res.quality };
     }
@@ -137,6 +194,7 @@ async function startCapture(tabId, { auto = false } = {}) {
   // silently downgrading the quality the user asked for.
   if (settings.captureMode === "source") {
     sessions.delete(tabId);
+    await persistSessions();
     updateBadge();
     await maybeCloseOffscreen();
     const why = playlistUrl
@@ -157,6 +215,7 @@ async function startCapture(tabId, { auto = false } = {}) {
 
   if (!res || !res.ok) {
     sessions.delete(tabId);
+    await persistSessions();
     updateBadge();
     await maybeCloseOffscreen();
     return { ok: false, error: (res && res.error) || "Could not start capture." };
@@ -170,11 +229,15 @@ async function startCapture(tabId, { auto = false } = {}) {
 
 async function stopCapture(tabId, { silent = false, byUser = false } = {}) {
   if (!sessions.has(tabId)) return { ok: true };
-  if (byUser) manualStops.add(tabId);
+  if (byUser) {
+    manualStops.add(tabId);
+    await persistManualStops();
+  }
   await chrome.runtime
     .sendMessage({ target: "offscreen", type: "stop-capture", tabId })
     .catch(() => {});
   sessions.delete(tabId);
+  await persistSessions();
   updateBadge();
   await maybeCloseOffscreen();
   if (!silent) {
@@ -282,6 +345,7 @@ async function handleCaptureEnded(msg) {
   const session = sessions.get(msg.tabId);
   if (!session) return;
   sessions.delete(msg.tabId);
+  await persistSessions();
   updateBadge();
   const settings = await scpLoadSettings();
   if (msg.error && settings.notifyOnCaptureError) {
@@ -297,6 +361,7 @@ async function handleCaptureEnded(msg) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.target !== "background") return;
   (async () => {
+    await hydrate();
     switch (msg.type) {
       case "start-capture":
         sendResponse(await startCapture(msg.tabId, { auto: !!msg.auto }));
@@ -339,6 +404,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // Keyboard shortcuts.
 chrome.commands.onCommand.addListener(async command => {
+  await hydrate();
   const settings = await scpLoadSettings();
   if (command === "clip-all-tabs") {
     await clipAll(settings.defaultClipSeconds);
@@ -366,14 +432,27 @@ chrome.commands.onCommand.addListener(async command => {
 });
 
 // Keep session titles fresh and drop sessions whose tabs disappear.
-chrome.tabs.onRemoved.addListener(tabId => {
+chrome.tabs.onRemoved.addListener(async tabId => {
+  await hydrate();
   manualStops.delete(tabId);
-  if (sessions.has(tabId)) stopCapture(tabId, { silent: true });
+  playlistsByTab.delete(tabId);
+  await Promise.all([persistManualStops(), persistPlaylists()]);
+  if (sessions.has(tabId)) await stopCapture(tabId, { silent: true });
 });
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.url) manualStops.delete(tabId); // new page — auto-start may apply again
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (!changeInfo.url && !changeInfo.title) return;
+  await hydrate();
+  if (changeInfo.url) {
+    // New page — auto-start may apply again, and the old playlist is stale.
+    manualStops.delete(tabId);
+    playlistsByTab.delete(tabId);
+    await Promise.all([persistManualStops(), persistPlaylists()]);
+  }
   const s = sessions.get(tabId);
-  if (s && changeInfo.title) s.title = changeInfo.title;
+  if (s && changeInfo.title) {
+    s.title = changeInfo.title;
+    await persistSessions();
+  }
 });
 
 updateBadge();

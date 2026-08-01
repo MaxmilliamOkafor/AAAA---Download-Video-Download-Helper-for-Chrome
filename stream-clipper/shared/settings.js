@@ -4,7 +4,7 @@
 const SCP_DEFAULT_SETTINGS = {
   // Rolling buffer
   bufferMinutes: 10,          // how far back you can clip, per stream
-  maxBufferMB: 900,           // hard memory cap per stream (oldest footage dropped first)
+  maxBufferMB: 600,           // hard memory cap per stream (oldest footage dropped first)
 
   // Clipping
   clipPresets: [30, 60, 120, 300], // seconds, shown as one-click buttons
@@ -15,10 +15,14 @@ const SCP_DEFAULT_SETTINGS = {
 
   // Capture quality
   captureMode: "auto",        // auto (source when available) | source (never re-encode) | tab
-  sourceHeightCap: 0,         // 0 = always take the stream's best rendition
+  // Source mode fetches the stream a second time alongside the player, so the
+  // rendition it buffers directly determines how much extra bandwidth it uses.
+  // Capping at 1080p keeps that cost predictable; 0 means "always the best
+  // rendition", which on a 4K stream can double or triple your usage.
+  sourceHeightCap: 1080,
   resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (tab mode: never exceeds what the player renders)
   frameRate: 60,              // 30 | 60
-  videoBitrateMbps: 12,       // 4..40
+  videoBitrateMbps: 8,        // 4..40 — higher costs CPU and memory while encoding live
   audioBitrateKbps: 192,      // 96..320
   codecPreference: "auto",    // auto | h264 | vp9 | vp8
 

@@ -318,6 +318,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, stats: buffer ? buffer.stats() : getStats(msg.tabId) });
           break;
         }
+        case "list-captures":
+          // The service worker asks this after a restart to rebuild its
+          // session registry — this document is the authority on what is live.
+          sendResponse({
+            ok: true,
+            tabIds: [...new Set([...captures.keys(), ...sourceBuffers.keys()])]
+          });
+          break;
         case "release-url":
           if (liveUrls.has(msg.url)) {
             URL.revokeObjectURL(msg.url);

@@ -114,6 +114,29 @@ Auto mode (the default) uses source when it's available and silently falls
 back to tab when it isn't. Choose **Source only** if you'd rather be told the
 quality isn't available than get a re-encoded clip.
 
+### Troubleshooting
+
+**The stream stutters while monitoring.** Source mode downloads the stream a
+second time, in parallel with the player, so it roughly doubles your bandwidth
+use — and buffering a rendition higher than the one you're watching costs more
+still. On a tight connection, lower the **source quality cap** (720p is
+lightest) or switch to **tab mode**, which adds no network traffic at all.
+In tab mode the cost is CPU instead: live 1080p60 encoding is demanding, so
+drop to 30 fps or 720p if the player starts dropping frames.
+
+**The popup says no streams are monitored, but recording is running.** This was
+a bug in versions before 1.2.1 and is fixed. Chrome suspends extension service
+workers after about 30 seconds idle; the session registry lived only in memory,
+so it vanished on suspend while the offscreen document kept recording. State
+now persists in `chrome.storage.session` and is reconciled against the
+offscreen document — the authority on what is actually live — whenever the
+worker restarts.
+
+**Source mode never engages (badge always shows TAB).** The playlist is
+discovered by observing the `.m3u8` requests the page makes, so playback has to
+start before monitoring. Let the stream play a few seconds, then start
+monitoring. Sites that don't use HLS will always fall back to tab mode.
+
 ### Known limitations
 
 - Source clips are `.ts` (MPEG-TS) on Twitch/Kick. Premiere, DaVinci, CapCut,
