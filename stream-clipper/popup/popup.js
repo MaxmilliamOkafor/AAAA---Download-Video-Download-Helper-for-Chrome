@@ -148,6 +148,7 @@ function createSessionCard(session) {
   // over-buffer, so it always yields the maximum footage available.
   const allBtn = document.createElement("button");
   allBtn.className = "btn btn-all";
+  allBtn.type = "button";
   const allLabel = document.createElement("span");
   allLabel.textContent = "All";
   const allEst = document.createElement("span");
@@ -155,8 +156,11 @@ function createSessionCard(session) {
   allEst.hidden = true;
   allBtn.append(allLabel, allEst);
   allBtn.addEventListener("click", () => {
-    // Ask for the full buffer window; assembly is bounded by what exists.
-    const seconds = Math.max(5, card.maxBufferSeconds || card.bufferedSeconds || 60);
+    // Deliberately over-ask: assembly is bounded by what actually exists, so
+    // requesting more than the buffer holds is safe and guarantees nothing is
+    // trimmed. With an unlimited buffer there is no ceiling to ask for, so
+    // request the buffered length plus headroom.
+    const seconds = Math.max(5, (card.maxBufferSeconds || card.bufferedSeconds || 60) + 120);
     doClip(tabId, seconds, allBtn, allLabel);
   });
   els.btnBox.appendChild(allBtn);
@@ -239,7 +243,7 @@ function updateSessionCard(card, s) {
   const { els, presets } = card;
   const stats = s.stats;
   card.bufferedSeconds = stats ? stats.bufferedSeconds : 0;
-  card.maxBufferSeconds = stats ? stats.maxBufferSeconds : settings.bufferMinutes * 60;
+  card.maxBufferSeconds = stats ? stats.maxBufferSeconds : scpBufferSeconds(settings);
 
   if (els.chip.textContent !== s.site) {
     els.chip.textContent = s.site;
@@ -269,14 +273,17 @@ function updateSessionCard(card, s) {
   renderQualityLine(els.quality, stats, s.mode);
 
   if (stats) {
+    // maxBufferSeconds of 0 means unlimited — there is no ceiling to show.
+    const unlimited = !stats.maxBufferSeconds;
     let text =
-      `Buffer: ${scpFormatDuration(stats.bufferedSeconds)} / ${scpFormatDuration(stats.maxBufferSeconds)}` +
+      `Buffer: ${scpFormatDuration(stats.bufferedSeconds)}` +
+      (unlimited ? " (unlimited)" : ` / ${scpFormatDuration(stats.maxBufferSeconds)}`) +
       ` · ${fmtBytes(stats.bufferedBytes)} · since ${new Date(stats.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     if (stats.pendingClips > 0) {
       text += ` · ⏳ ${stats.pendingClips} clip${stats.pendingClips > 1 ? "s" : ""} finishing`;
     }
     els.info.textContent = text;
-    const pct = Math.min(100, (stats.bufferedSeconds / stats.maxBufferSeconds) * 100);
+    const pct = unlimited ? 100 : Math.min(100, (stats.bufferedSeconds / stats.maxBufferSeconds) * 100);
     els.fill.style.width = `${pct}%`;
     els.bar.setAttribute("aria-valuenow", String(Math.round(pct)));
   } else {
@@ -323,8 +330,9 @@ function updateSessionCard(card, s) {
       est.hidden = true;
     }
     // Longer than the buffer is still useful — it saves everything available —
-    // but say so rather than silently truncating.
-    if (preset > maxBuffer) {
+    // but say so rather than silently truncating. With an unlimited buffer
+    // nothing is ever over-buffer.
+    if (maxBuffer && preset > maxBuffer) {
       btn.classList.add("over-buffer");
       btn.title =
         `Longer than the ${scpFormatDuration(maxBuffer)} buffer — saves the full buffer instead. ` +

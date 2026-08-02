@@ -95,7 +95,7 @@ class ScpHlsBuffer {
     return {
       mode: "source",
       bufferedSeconds: Math.round(bufferedSeconds),
-      maxBufferSeconds: this.settings.bufferMinutes * 60,
+      maxBufferSeconds: scpBufferSeconds(this.settings), // 0 = unlimited
       bufferedBytes: this.bytes,
       startedAt: this.startedAt,
       quality: v ? `${v.height}p${v.frameRate ? Math.round(v.frameRate) : ""}` : "source",
@@ -207,7 +207,7 @@ class ScpHlsBuffer {
             t: Date.now(),
             bytes
           });
-          this.bytes += bytes.byteLength;
+          this.bytes += bytes.size;
           if (this.container !== "mp4" && /\.ts(\?|$)/.test(seg.url)) this.container = "ts";
         } catch {
           // A single missed segment is normal on live edge; keep going.
@@ -231,14 +231,23 @@ class ScpHlsBuffer {
     }
   }
 
+  // 0 for either limit means unlimited — keep everything since monitoring
+  // began. Segments are held as Blobs, so Chrome can page them out to disk
+  // rather than pinning the JS heap, which is what makes very long buffers
+  // practical at all.
   #prune() {
-    const maxSeconds = this.settings.bufferMinutes * 60;
-    const maxBytes = this.settings.maxBufferMB * 1024 * 1024;
+    const maxSeconds = scpBufferSeconds(this.settings);
+    const maxBytes = (this.settings.maxBufferMB || 0) * 1024 * 1024;
+    if (!maxSeconds && !maxBytes) return;
+
     let total = this.segments.reduce((a, s) => a + s.duration, 0);
-    while (this.segments.length > 1 && (total > maxSeconds || this.bytes > maxBytes)) {
+    while (
+      this.segments.length > 1 &&
+      ((maxSeconds && total > maxSeconds) || (maxBytes && this.bytes > maxBytes))
+    ) {
       const dropped = this.segments.shift();
       total -= dropped.duration;
-      this.bytes -= dropped.bytes.byteLength;
+      this.bytes -= dropped.bytes.size;
       this.seenSeq.delete(dropped.seq);
     }
   }
@@ -249,10 +258,12 @@ class ScpHlsBuffer {
     return res.text();
   }
 
+  // Returns a Blob, not a typed array: Blob storage is managed by the browser
+  // and can spill to disk, so a multi-hour buffer does not have to fit in RAM.
   async #fetchBytes(url) {
     const res = await fetch(url, { credentials: "include", cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+    return res.blob();
   }
 }
 

@@ -74,6 +74,16 @@ function updateBufferEstimate() {
   const mbps = Number($("#videoBitrateMbps").value);
   const el = $("#buffer-estimate");
 
+  if (minutes === 0 || capMB === 0) {
+    el.textContent =
+      `Unlimited: nothing is discarded, so a stream grows about ` +
+      `${scpFormatBytes(scpEstimateBytes(3600, mbps))} per hour at ~${mbps} Mbps ` +
+      `(source mode uses the stream's own bitrate). Buffers are stored as browser blobs, ` +
+      `which Chrome can page to disk rather than holding purely in RAM — but a very long ` +
+      `session still consumes real storage, so stop monitoring when you're done.`;
+    return;
+  }
+
   const wanted = scpEstimateBytes(minutes * 60, mbps);
   const capBytes = capMB * 1024 * 1024;
   const held = Math.min(wanted, capBytes);
@@ -120,7 +130,10 @@ async function init() {
   const QUICK_SETUPS = {
     "#preset-light":    { bufferMinutes: 10,  maxBufferMB: 600,  clipPresets: [30, 60, 300, 600] },
     "#preset-long":     { bufferMinutes: 60,  maxBufferMB: 4000, clipPresets: [60, 300, 1800, 3600] },
-    "#preset-marathon": { bufferMinutes: 120, maxBufferMB: 8000, clipPresets: [60, 300, 1800, 3600, 7200] }
+    "#preset-marathon": { bufferMinutes: 120, maxBufferMB: 8000, clipPresets: [60, 300, 1800, 3600, 7200] },
+    // 0/0 = keep everything since monitoring started, bounded only by what the
+    // browser will store. The All button then always saves the full session.
+    "#preset-unlimited": { bufferMinutes: 0, maxBufferMB: 0, clipPresets: [60, 300, 1800, 3600, 7200] }
   };
   for (const [sel, values] of Object.entries(QUICK_SETUPS)) {
     $(sel).addEventListener("click", () => {

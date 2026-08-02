@@ -175,6 +175,26 @@ measured from the live buffer rather than assumed.
 Every quick-clip button also carries its own estimated file size at the current
 bitrate, so a 30m clip tells you it's ~1.7 GB before you click it.
 
+### Unlimited buffering
+
+Set **Buffer length** and **Memory cap** to *Unlimited* (or press the
+**Unlimited** quick setup) and nothing is ever discarded — the buffer grows for
+as long as monitoring runs, and **All** saves the entire session.
+
+Two things make this practical rather than theoretical:
+
+- Source-mode segments are held as browser **blobs**, which Chrome can page out
+  to disk instead of pinning in the JS heap. A multi-hour buffer no longer has
+  to fit in RAM.
+- Buffer limits are re-read on every prune and pushed live to running captures,
+  so raising them takes effect **immediately** — no need to stop and restart
+  monitoring.
+
+Only an explicit `0` means unlimited; a missing or corrupt setting falls back
+to the default rather than silently filling your disk. Storage is still real,
+so stop monitoring when you're done — at 8 Mbps a stream accumulates roughly
+3.4 GB per hour, and more at 4K.
+
 ### Saving everything recorded
 
 Every stream card has a permanent **All** button that saves the entire buffer —

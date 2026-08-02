@@ -309,10 +309,12 @@ function isDuringAd(state, t) {
   return state.adWindows.some(w => t >= w.start && t <= w.end);
 }
 
+// 0 for either limit means unlimited — keep everything since recording began.
 function pruneBuffer(state) {
-  const maxAgeMs = state.settings.bufferMinutes * 60 * 1000;
-  const maxBytes = state.settings.maxBufferMB * 1024 * 1024;
-  const cutoff = Date.now() - maxAgeMs;
+  const maxSeconds = scpBufferSeconds(state.settings);
+  const maxBytes = (state.settings.maxBufferMB || 0) * 1024 * 1024;
+  if (!maxSeconds && !maxBytes) return;
+  const cutoff = maxSeconds ? Date.now() - maxSeconds * 1000 : -Infinity;
   // Never prune footage a pending post-roll clip still needs.
   let protectedFrom = Infinity;
   for (const p of state.pendingClips) {
@@ -321,7 +323,7 @@ function pruneBuffer(state) {
   while (
     state.chunks.length > 1 &&
     state.chunks[0].t < protectedFrom &&
-    (state.chunks[0].t < cutoff || state.bytes > maxBytes)
+    (state.chunks[0].t < cutoff || (maxBytes && state.bytes > maxBytes))
   ) {
     const dropped = state.chunks.shift();
     state.bytes -= dropped.blob.size;
@@ -420,7 +422,7 @@ function getStats(tabId) {
   return {
     mode: "tab",
     bufferedSeconds,
-    maxBufferSeconds: state.settings.bufferMinutes * 60,
+    maxBufferSeconds: scpBufferSeconds(state.settings), // 0 = unlimited
     bufferedBytes: state.bytes,
     pendingClips: state.pendingClips.size,
     mimeType: state.recorder.mimeType,
@@ -530,6 +532,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             has: msgRects.has(msg.tabId) && !!(msgRects.get(msg.tabId) || {}).found
           });
           break;
+        case "update-settings": {
+          // Apply live to running captures. Buffer limits are read on every
+          // prune, so a raised limit simply stops discarding; a lowered one
+          // trims on the next tick.
+          for (const state of captures.values()) {
+            state.settings = { ...state.settings, ...msg.settings };
+          }
+          for (const buffer of sourceBuffers.values()) {
+            buffer.settings = { ...buffer.settings, ...msg.settings };
+          }
+          sendResponse({ ok: true });
+          break;
+        }
         case "list-captures":
           // The service worker asks this after a restart to rebuild its
           // session registry — this document is the authority on what is live.

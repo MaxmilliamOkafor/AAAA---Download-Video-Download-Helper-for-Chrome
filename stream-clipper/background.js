@@ -308,7 +308,10 @@ async function requestClip(tabId, durationSeconds) {
   const session = sessions.get(tabId);
   if (!session) return { ok: false, error: "This tab isn't being monitored." };
   const settings = await scpLoadSettings();
-  const dur = Math.max(5, Math.min(settings.bufferMinutes * 60, Math.round(durationSeconds || settings.defaultClipSeconds)));
+  // Clip length is bounded by the buffer only when the buffer is bounded.
+  // Assembly is limited by what actually exists either way.
+  const cap = scpBufferSeconds(settings) || Infinity;
+  const dur = Math.max(5, Math.min(cap, Math.round(durationSeconds || settings.defaultClipSeconds)));
   const res = await chrome.runtime.sendMessage({
     target: "offscreen",
     type: "make-clip",
@@ -484,6 +487,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
   })();
   return true; // async response
+});
+
+// Buffer length and memory cap now apply to captures already running, so
+// raising them takes effect immediately instead of only on the next start.
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== "sync" || !changes.settings) return;
+  const settings = scpNormalizeSettings(changes.settings.newValue);
+  await chrome.runtime
+    .sendMessage({ target: "offscreen", type: "update-settings", settings })
+    .catch(() => {});
 });
 
 // Keyboard shortcuts.

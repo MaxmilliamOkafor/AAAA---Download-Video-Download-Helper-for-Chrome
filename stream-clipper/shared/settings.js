@@ -51,14 +51,24 @@ const SCP_RESOLUTIONS = {
   2160: { width: 3840, height: 2160 }
 };
 
+// Buffer length in seconds, or 0 when unlimited. Callers must treat 0 as
+// "no limit" rather than "no buffer".
+function scpBufferSeconds(settings) {
+  const m = Number(settings && settings.bufferMinutes);
+  return Number.isFinite(m) && m > 0 ? m * 60 : 0;
+}
+
 function scpNormalizeSettings(raw) {
   const s = { ...SCP_DEFAULT_SETTINGS, ...(raw || {}) };
-  // Up to 4h of buffer and 32 GB of memory: long buffers are legitimate for
-  // clipping a whole segment of a stream, and the options page shows what
-  // each choice actually costs in RAM.
-  s.bufferMinutes = clampNum(s.bufferMinutes, 1, 240);
-  s.maxBufferMB = clampNum(s.maxBufferMB, 100, 32000);
-  s.defaultClipSeconds = clampNum(s.defaultClipSeconds, 5, s.bufferMinutes * 60);
+  // 0 means unlimited for both: keep everything since monitoring started,
+  // bounded only by what the browser will store. Anything unparseable falls
+  // back to the default rather than silently becoming unlimited.
+  // Only an explicit numeric 0 means unlimited. null/undefined/"" must fall
+  // back to the default: Number(null) is 0, so a missing value would otherwise
+  // silently turn unlimited buffering on and fill the user's disk.
+  s.bufferMinutes = clampNum(explicitNum(s.bufferMinutes, SCP_DEFAULT_SETTINGS.bufferMinutes), 0, 1440);
+  s.maxBufferMB = clampNum(explicitNum(s.maxBufferMB, SCP_DEFAULT_SETTINGS.maxBufferMB), 0, 200000);
+  s.defaultClipSeconds = clampNum(s.defaultClipSeconds, 5, scpBufferSeconds(s) || 14400);
   s.clipPresets = (Array.isArray(s.clipPresets) ? s.clipPresets : SCP_DEFAULT_SETTINGS.clipPresets)
     .map(v => clampNum(v, 5, 14400))
     .filter((v, i, a) => a.indexOf(v) === i)
@@ -81,6 +91,12 @@ function scpNormalizeSettings(raw) {
     s.fileNameTemplate = SCP_DEFAULT_SETTINGS.fileNameTemplate;
   }
   return s;
+
+  function explicitNum(v, fallback) {
+    if (v === null || v === undefined || v === "") return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
 
   function clampNum(v, lo, hi) {
     v = Number(v);
@@ -247,6 +263,7 @@ if (typeof globalThis !== "undefined") {
     scpSiteFromUrl,
     scpStreamerFromTab,
     scpIsLikelyStreamPage,
+    scpBufferSeconds,
     scpCodecLabel,
     scpParseDuration,
     scpParseDurationList,
