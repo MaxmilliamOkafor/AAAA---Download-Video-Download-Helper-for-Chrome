@@ -1,306 +1,184 @@
-# StreamClip Pro — Live Stream Replay Clipper
+# StreamClip Pro
 
-A professional Chrome extension (Manifest V3) for content creators who clip live
-streams. It works like OBS's instant-replay buffer, but inside your browser:
-while you watch a stream, StreamClip keeps a rolling buffer of the most recent
-footage — when something great happens, one click (or **Alt+C**) saves the last
-N seconds as a video file. Nothing is ever saved unless *you* ask.
+A Chrome extension (Manifest V3) that turns the live streams you watch into
+upload-ready video files without you doing anything.
 
-Works on **Twitch**, **Kick**, **YouTube live** and any other site that plays
-video in a tab.
+Open a live channel on Twitch, Kick or YouTube and StreamClip starts buffering
+it, saves it as back-to-back MP4 segments, leaves the ads out, and delivers the
+files to your computer and, optionally, to your Google Drive. Manual clipping
+("save the last 60 seconds") works alongside, for the moments you want on
+their own.
 
-## Why this design
+## Install
 
-- **Never miss a moment.** The moment already happened when you react to it —
-  a replay buffer is the only way to clip *backwards* in time. You choose how
-  far back (5 seconds to 30 minutes).
-- **No spam, no duplicates.** There is no auto-detected media list and no
-  auto-clipping. Each monitored stream is exactly **one card** in the popup —
-  no three duplicate "Live on Twitch.mp4" entries for the same stream, and no
-  random clips appearing on their own. A clip exists only when you press a
-  button or a hotkey.
-- **Multi-streamer.** Monitor several tabs at once (Twitch + Kick + YouTube
-  simultaneously). Clip one stream, or hit **Alt+Shift+C** / "⚡ Clip all" to
-  clip every monitored stream at the same moment.
-- **True source quality, no re-encoding.** When a stream uses HLS (Twitch and
-  Kick always do, most YouTube live does), StreamClip buffers the
-  broadcaster's **original video segments** — the exact bytes the CDN sends —
-  and a clip is those segments concatenated. No decode/encode round trip, so
-  there is zero generation loss: the clip is the broadcast. It also always
-  buffers the stream's *best* rendition, so you can watch at 720p to save
-  bandwidth and still clip at 1080p60. Falls back automatically to tab
-  recording on sites that don't expose HLS.
-- **Full quality control.** In tab mode: resolution cap up to 4K, 30/60 fps,
-  video bitrate up to 30 Mbps, audio up to 320 kbps, codec preference
-  (H.264 / VP9 / VP8).
-- **Editor-ready files.** Clip timestamps are rebased to start at 0:00
-  (in-place WebM timecode patching, covered by unit tests), so clips show the
-  correct duration and scrub cleanly in players and editors.
-- **Post-roll.** Optionally keep recording 5–60 extra seconds after you hit
-  clip, so the reaction/aftermath makes it into the same file.
+1. Open `chrome://extensions` and enable **Developer mode**.
+2. **Load unpacked** → select this `stream-clipper` folder.
+3. The dashboard opens. Nothing needs configuring.
 
-## Install (developer mode)
+## What happens with no setup
 
-1. Open `chrome://extensions` in Chrome.
-2. Enable **Developer mode** (top right).
-3. Click **Load unpacked** and select this `stream-clipper` folder.
-4. Pin the extension. Open a live stream, click the icon, press
-   **Start monitoring**.
+| Step | What StreamClip does | Default |
+|---|---|---|
+| Capture | Starts by itself a few seconds after a live channel begins playing. Buffers the broadcaster's **original segments** at the **best rendition offered**, regardless of the quality you are watching. | on |
+| Clip | Saves each stream as consecutive segments that tile exactly, with no gaps or overlap. When a stream ends, the tab closes or you move to another channel, the unsaved remainder is saved too. | every 15 min |
+| Convert | Rewraps MPEG-TS as **MP4** with no re-encoding: the video bitstream is identical to the broadcast. | MP4 |
+| Ads | Stitched ad segments are detected from the stream's playlist and never downloaded. | excluded |
+| Deliver | `Downloads/StreamClips/<site>/<streamer> - <date> <time> (<length>s).mp4` | this computer |
 
-## Usage
+Automatic clips are silent. The toolbar badge shows how many streams are being
+buffered, and the dashboard's **Clip library** lists every file and where it
+went.
 
-| Action | How |
-|---|---|
-| Start buffering a stream | Open the popup on a stream page (auto-starts by default), or **Start monitoring**, or **Alt+M** |
-| Save the last 30s / 1m / 2m / 5m | Click a quick-clip button on the stream's card |
-| Save a custom length | Enter min : sec on the card → **Clip** |
-| Clip the current tab instantly | **Alt+C** (uses your default clip length) |
-| Clip every monitored stream at once | **Alt+Shift+C** or **⚡ Clip all** |
-| Include the aftermath | Set a post-roll in Settings — clips save after +N extra seconds |
-| Find a saved clip | Popup → **Clip history** → 📂 Show file (or click the save notification) |
-| Stop monitoring | ✕ on the stream's card or **Alt+M** (buffer is discarded) |
+Automatic start works on live channel pages (`twitch.tv/<channel>`,
+`kick.com/<channel>`, YouTube watch and live pages) when the site plays over
+HLS. Directories, VODs, clips and hover previews are ignored. On any other
+site, or when a stream is not HLS, click the toolbar icon on the stream's tab
+(or press **Alt+M**) to record the rendered tab instead; Chrome requires that
+click before a tab's pixels can be captured.
 
-Clips land in your Downloads folder, organized by the filename template
-(default: `StreamClips/{site}/{streamer} - {date} {time} ({length}s).webm`).
-Everything is configurable in **Settings**: buffer length, memory cap,
-quick-clip presets, hotkey clip length, quality, filename template, and
-notifications.
+## Everything is still yours to change
+
+The dashboard (toolbar icon → **Dashboard**) has five sections. Settings save
+as you change them and apply to running captures.
+
+- **Live** — one card per stream: rendition picker, measured resolution, frame
+  rate, codec and bitrate, buffer fill, time to the next automatic clip, and
+  manual clip buttons (`All`, your presets, and a custom min:sec field).
+- **Clip library** — every clip with length, size and delivery status for the
+  computer and for Drive; shortcuts to the file and to the Drive copy.
+- **Automation** — auto-clip on/off and segment length (any length: `90s`,
+  `15m`, `1h 30m`), Google Drive delivery, and the pipeline at a glance.
+- **Capture** — automatic start, capture mode, source quality cap, ad
+  exclusion, buffer length and memory cap, tab-mode quality.
+- **Output** — MP4 or original container, file-name template, quick-clip
+  buttons, post-roll, notifications, shortcuts.
+
+Shortcuts: **Alt+C** clips the current tab, **Alt+Shift+C** clips every
+stream, **Alt+M** starts or stops monitoring the current tab.
+
+## Google Drive
+
+Two ways to get every clip into Drive:
+
+**Without any setup here:** install Google Drive for desktop and add your
+`Downloads/StreamClips` folder to it. Clips sync as they are saved.
+
+**Built-in upload:** turn on *Google Drive delivery* in **Automation**.
+Uploads run in the background in resumable 16 MiB chunks into
+`StreamClips/<streamer>/`. This needs a one-time, free Google OAuth client of
+your own (the dashboard lists the five steps and shows the redirect URI to
+paste, `https://mlcghpbkpjmomgpcpeojglkbbhfjmggd.chromiumapp.org/`). No
+credentials ship with the extension and nothing passes through a third-party
+server. The scope is `drive.file`: StreamClip can see only the files it
+created.
+
+If an upload fails and the clip was not also kept locally, it is saved to
+Downloads instead. A clip is never dropped.
+
+## Feeding an AI clipping tool
+
+Tools that cut shorts out of long videos generally take a file upload. Taja's
+site, for example, says it imports from YouTube or "any file on your
+computer", accepts mp4, mov, m4v, avi, mpeg, webm and mkv, and limits uploads
+to 5–10 GB and 2–5 hours depending on plan ([home page](https://www.taja.ai/),
+[pricing](https://www.taja.ai/pricing), read November 2026). It does not list
+Google Drive as an import source. StreamClip's defaults fit that directly:
+15-minute MP4 segments in `Downloads/StreamClips`, about 0.9 GB each at
+8 Mbps. `.ts` files, which Twitch and Kick deliver natively, are not on that
+list, which is why MP4 is the default.
+
+## Capture modes
+
+| | Source | Tab |
+|---|---|---|
+| Records | The broadcaster's original HLS segments | The pixels the tab renders, cropped to the player |
+| Quality | Identical to the broadcast | Re-encoded; limited by what the player shows |
+| Starts by itself | Yes | No — needs a click on the tab |
+| Output | `.mp4` (or `.ts` if you choose) | `.webm` |
+| Cost while buffering | Bandwidth: the stream is downloaded a second time | CPU: a live encode |
+| Ads | Skipped from playlist markers, never downloaded | Cut using the player's ad indicator |
+
+Switching rendition on a stream's card restarts that stream's buffer, because
+segments at different resolutions cannot be joined into one file.
 
 ## Architecture
 
 ```
-manifest.json          MV3 manifest (tabCapture, offscreen, downloads, webRequest)
-background.js          Service worker: session registry, HLS playlist discovery,
-                       capture-mode selection, downloads, hotkeys, notifications
-offscreen/
-  hls-buffer.js        Source mode: polls the media playlist, keeps original
-                       segments in a rolling buffer, concatenates clips
-  offscreen.js         Tab mode: one MediaRecorder per tab, chunk buffer,
-                       clip assembly; routes both modes' messages
-  webm-rebase.js       Rebases WebM cluster timecodes to 0:00 (unit-tested)
-popup/                 Control center: one card per monitored stream + history
-options/               Full settings page (chrome.storage.sync)
-shared/
-  settings.js          Settings model, filename templating, site detection
-  hls-parse.js         HLS master/media playlist parser (unit-tested)
-test/                  Node unit tests — run: node test/hls-parse.test.js
+manifest.json            MV3 manifest
+background.js            Service worker: session registry, playlist discovery,
+                         automatic start, auto-clip scheduler (alarms),
+                         delivery routing, clip history
+drive-auth.js            Google sign-in for the worker (launchWebAuthFlow)
+offscreen/               Long-lived capture document
+  offscreen.js             capture engines, clip registry, message routing
+  hls-buffer.js            source mode: playlist polling, segment buffer
+  ts-to-mp4.js             MPEG-TS -> fragmented MP4 without re-encoding
+  drive-upload.js          Drive v3 resumable uploads
+  webm-rebase.js           tab mode: rebases WebM timecodes to 0:00
+content/video-locator.js Tab mode: finds the player and detects ads
+ui/                      Design system and the stream card, shared by both UIs
+popup/                   Quick controls
+dashboard/               Live, library, automation and all settings
+shared/                  Settings model, HLS playlist parser
+vendor/mux-mp4.min.js    mux.js 6.3.0 (Apache-2.0), the MP4 container writer
+test/                    Unit and end-to-end tests
 ```
 
-Source mode discovers the playlist by observing (never blocking or modifying)
-`.m3u8` requests the tab already makes, then fetches the media playlist and its
-segments directly. This is why the extension requests `webRequest` and broad
-host permissions: stream segments are served from arbitrary CDN hostnames that
-can't be enumerated ahead of time.
+State that must survive the service worker being suspended lives in
+`chrome.storage.session` and is reconciled against the offscreen document,
+which is the authority on what is recording. A clip's data stays alive until
+every delivery that needs it has finished.
 
-Capture uses `chrome.tabCapture` → `MediaRecorder` in an offscreen document
-with 1-second timeslices. The first chunk (container header) is retained and
-prepended to the selected window of recent chunks to produce a playable WebM.
-Tab audio is routed back to your speakers during capture, so the stream stays
-audible.
+The extension requests `<all_urls>` because stream segments are served from
+CDN hostnames that cannot be listed ahead of time. Requests are observed, never
+blocked or modified.
 
-### Capture modes
+The `key` in `manifest.json` pins the extension ID, so the Drive redirect URI
+stays the same wherever the folder is loaded from. Remove it before submitting
+to the Chrome Web Store, which assigns its own.
 
-| | Source mode | Tab mode |
-|---|---|---|
-| What it records | The broadcaster's original HLS segments | The pixels the tab renders |
-| Quality | Identical to the broadcast — no re-encode | Re-encoded; capped by what the player shows |
-| Clip quality vs. watch quality | Independent — watch 720p, clip 1080p60 | Same as what you're watching |
-| Output | `.ts` (Twitch/Kick) or `.mp4` (fMP4 streams) | `.webm` |
-| CPU cost while buffering | Low (just downloading) | Higher (live encoding) |
-| Works on | HLS sites: Twitch, Kick, most YouTube live | Any site with video |
-| Clip precision | Segment-aligned (~2s on Twitch) | ~1 second |
-
-Auto mode (the default) uses source when it's available and silently falls
-back to tab when it isn't. Choose **Source only** if you'd rather be told the
-quality isn't available than get a re-encoded clip.
-
-### Ads never reach your clips
-
-Mid-roll ads are detected and excluded automatically, by different means in
-each mode:
-
-- **Source mode** reads the ad markers in the stream's own playlist —
-  `EXT-X-DATERANGE` with an ad class (how Twitch stitches mid-rolls) and
-  `CUE-OUT`/`CUE-IN` brackets. Those segments are never downloaded at all, so
-  ads cost you no bandwidth and cannot reach the buffer. Parsing is covered by
-  unit tests, including breaks that end early and non-ad date ranges that must
-  not be mistaken for ads.
-- **Tab mode** watches the ad indicator each site renders (Twitch's ad label
-  and countdown, YouTube's `ad-showing` state, Kick's overlay) and drops the
-  footage recorded during the break.
-
-Either way the clip cuts straight from pre-ad content to where the stream
-resumed. The stream card shows `⏸ Ad break — excluded from clips` live, and
-afterwards how much advertising was kept out; the clip history records how much
-was removed from each saved file. Turn it off in Settings if you ever want the
-raw recording.
-
-### Choosing quality — no ceiling
-
-Each stream card carries a format tag and a quality picker listing every
-rendition the stream actually offers, best first:
+## Tests
 
 ```
-⬥ SOURCE  [TS][★ 2160p60 · 25.0 Mbps · H.264 ⌄]  3840×2160 · 60 fps · H.264  (no re-encode)
+npm test            # 31 unit tests: playlist parser, Drive uploader, MP4 remux
+npm run test:e2e    # 10 checks in real Chromium with the extension loaded
 ```
 
-By default StreamClip buffers the **best rendition available** — 1440p, 4K,
-whatever exists — regardless of the quality you happen to be watching at.
-There is no quality cap unless you set one. The ★ marks the best option, and
-the picker's tooltip warns if you are not on it.
+The end-to-end test serves a simulated live channel (with a stitched ad) from a
+local server mapped to a `twitch.tv` URL, opens it, and does nothing else. It
+asserts that capture starts on its own at the best rendition, the ad segment
+is never fetched, automatic clips tile the stream, a channel switch and a tab
+close each save the remainder, and the files Chromium writes are valid
+1080p H.264 MP4s that play straight through. `npm test` needs Node and, for
+the remux test, ffmpeg; the end-to-end test needs Playwright and ffmpeg.
 
-Switching rendition restarts that stream's buffer, because segments at two
-different resolutions cannot be joined into one playable file. If more than
-30 seconds is buffered you get a confirmation first, so a mis-click never
-silently discards footage — clip what you have, then switch.
+## What has not been verified
 
-The only cost of maximum quality is bandwidth: source mode downloads the
-stream a second time alongside the player. If a stream stutters, pick a lower
-rendition from the same dropdown or switch to tab mode.
+- **Live Twitch, Kick and YouTube.** Everything above was exercised against a
+  local stream built to the HLS specification and to the stitched-ad markers
+  Twitch is known to use, not against the real sites. YouTube live frequently uses DASH
+  rather than HLS; those streams will need the click-to-record tab mode.
+- **Google Drive.** The uploader is tested against an imitation of Drive's
+  resumable protocol (chunking, a dropped connection, a 503, an expired
+  token). It has not yet uploaded to a real Drive account.
+- **Tab mode in a real tab.** Cropping to the player and the ad indicator
+  selectors have unit-level checks only; site markup changes can break the
+  selectors.
 
-### Seeing quality before you save
+## Limits worth knowing
 
-Each stream card shows exactly what a clip will contain, live:
-
-```
-⬥ SOURCE   1920×1080 · 60 fps · H.264 · 8.2 Mbps  (no re-encode)
-Buffer: 4m 12s / 30m · 248 MB · since 21:04
-```
-
-Resolution, frame rate and codec come from the stream's own rendition in
-source mode, and from the actual recorded canvas in tab mode — so what you see
-is what gets written, not the configured target. Bitrate in tab mode is
-measured from the live buffer rather than assumed.
-
-Every quick-clip button also carries its own estimated file size at the current
-bitrate, so a 30m clip tells you it's ~1.7 GB before you click it.
-
-### Unlimited buffering
-
-Set **Buffer length** and **Memory cap** to *Unlimited* (or press the
-**Unlimited** quick setup) and nothing is ever discarded — the buffer grows for
-as long as monitoring runs, and **All** saves the entire session.
-
-Two things make this practical rather than theoretical:
-
-- Source-mode segments are held as browser **blobs**, which Chrome can page out
-  to disk instead of pinning in the JS heap. A multi-hour buffer no longer has
-  to fit in RAM.
-- Buffer limits are re-read on every prune and pushed live to running captures,
-  so raising them takes effect **immediately** — no need to stop and restart
-  monitoring.
-
-Only an explicit `0` means unlimited; a missing or corrupt setting falls back
-to the default rather than silently filling your disk. Storage is still real,
-so stop monitoring when you're done — at 8 Mbps a stream accumulates roughly
-3.4 GB per hour, and more at 4K.
-
-### Saving everything recorded
-
-Every stream card has a permanent **All** button that saves the entire buffer —
-everything recorded since monitoring started. It needs no configuration, can
-never ask for more than exists, and shows the exact length and size it will
-produce (`All · 47m · ~2.8 GB`). It is the one button that always gives you the
-maximum footage available.
-
-### Long clips (30 minutes, 1 hour and beyond)
-
-Quick-clip presets accept `s` / `m` / `h`, so `30s, 1m, 5m, 30m, 1h` is a valid
-preset list, and the buffer goes up to **4 hours**.
-
-The one rule: **you can only clip what the buffer holds.** A 1-hour clip needs a
-1-hour buffer, and that buffer lives in RAM — roughly 3.4 GB at 8 Mbps. Two
-things make this visible instead of surprising:
-
-- The options page estimates memory for your chosen buffer length and bitrate,
-  and warns when your memory cap would truncate it. A 30-minute buffer at the
-  default 600 MB cap really only holds about 10 minutes — raise both together.
-- A preset longer than the buffer is drawn dashed and dimmed, and its tooltip
-  says what you'd actually get. It stays clickable and saves everything
-  available; it never fails silently.
-- **Quick setup** buttons in Settings move buffer length, memory cap and clip
-  buttons together in one click, so the combination is always coherent:
-  *Light* (10 min / 600 MB), *Long clips* (1 hour / 4 GB) and *Marathon*
-  (2 hours / 8 GB). Save, then restart monitoring for the new buffer to apply.
-
-For hour-long buffers, source mode is much lighter than tab mode: it stores the
-broadcast's own compressed segments rather than a live re-encode.
-
-### Clips contain the video only
-
-Neither mode puts chat, the sidebar or page chrome in your clips:
-
-- **Source mode** never could — HLS segments are the broadcast video itself,
-  with no page around it. This is another reason to prefer it.
-- **Tab mode** now locates the player in the page and crops the capture to it,
-  following theater mode, fullscreen and window resizes, and trimming
-  letterbox/pillarbox bars so the clip is exactly the picture. On a typical
-  Twitch layout that removes about half the frame — and because the crop keeps
-  the captured pixels rather than scaling them down, the entire bitrate is
-  spent on video instead of static page furniture. Turn it off in Settings if
-  you ever want the whole page.
-
-### Monitoring several streamers at once
-
-Monitor as many tabs as you like — Twitch, Kick and YouTube side by side. Each
-tab is an independent buffer with its own card, and **⚡ Clip all** /
-**Alt+Shift+C** clips every one of them at the same instant.
-
-All captures share a single offscreen document, which is what made earlier
-versions fragile here. Fixed in 1.3.0: starting a second stream could collide
-with creating that shared document and report the tab as already monitored,
-concurrent starts on one tab (auto-start plus a click) raced into the same
-error, and teardown paths could close the shared document while other tabs
-were still recording. Starts are now idempotent and de-duplicated per tab, and
-the document is only closed once it confirms nothing is left recording.
-
-Practical limits are bandwidth and CPU, not the extension: in source mode each
-stream adds its own download, and in tab mode each adds a live encode. Four or
-five 1080p streams is comfortable on a decent machine; beyond that, lower the
-source quality cap or drop tab mode to 30 fps.
-
-### Troubleshooting
-
-**The stream stutters while monitoring.** Source mode downloads the stream a
-second time, in parallel with the player, so it roughly doubles your bandwidth
-use — and buffering a rendition higher than the one you're watching costs more
-still. On a tight connection, lower the **source quality cap** (720p is
-lightest) or switch to **tab mode**, which adds no network traffic at all.
-In tab mode the cost is CPU instead: live 1080p60 encoding is demanding, so
-drop to 30 fps or 720p if the player starts dropping frames.
-
-**The popup says no streams are monitored, but recording is running.** This was
-a bug in versions before 1.2.1 and is fixed. Chrome suspends extension service
-workers after about 30 seconds idle; the session registry lived only in memory,
-so it vanished on suspend while the offscreen document kept recording. State
-now persists in `chrome.storage.session` and is reconciled against the
-offscreen document — the authority on what is actually live — whenever the
-worker restarts.
-
-**Source mode never engages (badge always shows TAB).** The playlist is
-discovered by observing the `.m3u8` requests the page makes, so playback has to
-start before monitoring. Let the stream play a few seconds, then start
-monitoring. Sites that don't use HLS will always fall back to tab mode.
-
-### Known limitations
-
-- Source clips are `.ts` (MPEG-TS) on Twitch/Kick. Premiere, DaVinci, CapCut,
-  VLC and OBS all import `.ts` directly; if a tool refuses it, remux losslessly
-  with `ffmpeg -c copy`. fMP4 streams save as `.mp4` with their init segment
-  prepended.
-- Source clips start on a segment boundary, so a requested 30s may arrive as
-  30–32s on Twitch. Tab mode is accurate to ~1 second.
-- Tab-mode clips are WebM (H.264/VP9 + Opus) with timestamps rebased to 0:00.
-- DRM-protected video (Widevine) captures as a black frame in tab mode — that's a browser
-  guarantee, not a bug. Standard Twitch/Kick/YouTube live streams are fine.
-- Capture records what the tab renders. For pristine quality: set the player
-  to source quality, keep the tab undocked or in the background (audio and
-  video keep recording), and avoid resizing the window mid-capture.
+- Source mode roughly doubles bandwidth per stream; several streams at once
+  add up. Pick a lower rendition on a card, or cap source quality in
+  **Capture**, if playback stutters.
+- The buffer is held by the browser (as blobs, which Chrome can page to disk).
+  With auto-clip on, 30 minutes is plenty; unlimited is available but grows
+  about 3.4 GB per hour per stream at 8 Mbps.
+- Clip boundaries fall on segment edges (about 2 seconds on Twitch).
+- DRM-protected video cannot be captured in either mode.
 
 ## Responsible use
 
-This tool records the streams you watch, for your own clipping workflow.
-Whether you may republish a clip depends on the platform's terms and the
-streamer's permission — many streamers explicitly encourage clipping, some
-don't. Get permission before posting someone else's content, and always
-respect DMCA takedowns. You are responsible for how you use recorded footage.
+StreamClip records streams you are watching. Whether you may republish a clip
+depends on the platform's terms and the streamer's permission; many streamers
+encourage clipping and some do not. Get permission before posting someone
+else's content and honour takedown requests.

@@ -1,69 +1,168 @@
 // StreamClip Pro — offscreen capture document.
-// Holds one MediaRecorder per monitored tab, keeps a rolling buffer of
-// timesliced chunks, and assembles "last N seconds" clips on demand.
-// Clips get their WebM timecodes rebased to t=0 (webm-rebase.js) so they
-// play and scrub correctly in players and editors.
+//
+// Owns everything that has to outlive the service worker: the per-tab capture
+// engines (source-quality HLS buffers and tab recorders), the clips they
+// produce, and the Google Drive uploads that deliver them.
 
 const CHUNK_MS = 1000; // recorder timeslice — 1s granularity for clip boundaries
+// The tail of a stream is saved even when it is short: completeness matters
+// more than tidiness. Only an empty or sub-segment remainder is skipped.
+const MIN_AUTO_CLIP_SECONDS = 2;
 
-// tabId -> capture state
+// tabId -> capture state (tab mode)
 const captures = new Map();
-// tabId -> ScpHlsBuffer, for source-quality (no re-encode) sessions
+// tabId -> ScpHlsBuffer (source mode)
 const sourceBuffers = new Map();
-// blob object URLs we handed to the background for downloading
-const liveUrls = new Set();
 
-async function startSourceCapture({ tabId, playlistUrl, settings }) {
-  if (sourceBuffers.has(tabId)) throw new Error("Already capturing this tab.");
-  const buffer = new ScpHlsBuffer({
-    tabId,
-    playlistUrl,
-    settings,
-    onError: message => {
-      sourceBuffers.delete(tabId);
-      chrome.runtime
-        .sendMessage({ target: "background", type: "capture-ended", tabId, error: message })
-        .catch(() => {});
-    }
-  });
-  sourceBuffers.set(tabId, buffer);
-  try {
-    const info = await buffer.start();
-    const v = info.variant;
-    return { quality: v ? `${v.height}p${v.frameRate ? Math.round(v.frameRate) : ""}` : "source" };
-  } catch (e) {
-    sourceBuffers.delete(tabId);
-    buffer.stop();
-    throw e;
+// url -> { blob, holds }. A clip stays alive until every delivery that needs
+// it (local download, Drive upload) has finished; then its URL is revoked.
+const clips = new Map();
+let activeUploads = 0;
+let assembling = 0;
+
+function publishClip(tabId, blob, meta) {
+  const url = URL.createObjectURL(blob);
+  clips.set(url, { blob, holds: 0 });
+  chrome.runtime
+    .sendMessage({ target: "background", type: "clip-ready", tabId, url, sizeBytes: blob.size, ...meta })
+    .catch(() => {});
+}
+
+function releaseClip(url) {
+  const clip = clips.get(url);
+  if (!clip) return;
+  clip.holds -= 1;
+  if (clip.holds <= 0) {
+    URL.revokeObjectURL(url);
+    clips.delete(url);
   }
 }
 
-async function makeSourceClip(tabId, durationSeconds, postRollSeconds) {
+// Uploads one clip to Drive in the background and reports the outcome. The
+// service worker may be asleep for most of this; messages wake it.
+async function uploadClipToDrive({ url, clipId, name, folderPath }) {
+  const clip = clips.get(url);
+  if (!clip) {
+    chrome.runtime
+      .sendMessage({ target: "background", type: "drive-done", clipId, ok: false, error: "Clip expired before upload." })
+      .catch(() => {});
+    return;
+  }
+  activeUploads += 1;
+  let lastReported = 0;
+  try {
+    const file = await scpDriveUpload({
+      blob: clip.blob,
+      name,
+      folderPath,
+      getToken: async force => {
+        const res = await chrome.runtime.sendMessage({ target: "background", type: "drive-token", force });
+        if (!res || !res.ok) throw new Error((res && res.error) || "Google Drive is not connected.");
+        return res.token;
+      },
+      onProgress: fraction => {
+        if (fraction - lastReported < 0.05 && fraction < 1) return;
+        lastReported = fraction;
+        chrome.runtime
+          .sendMessage({ target: "background", type: "drive-progress", clipId, fraction })
+          .catch(() => {});
+      }
+    });
+    releaseClip(url);
+    chrome.runtime
+      .sendMessage({ target: "background", type: "drive-done", clipId, ok: true, id: file.id, webViewLink: file.webViewLink })
+      .catch(() => {});
+  } catch (e) {
+    // Keep the blob: the worker decides whether to fall back to a local save
+    // (when Drive was the clip's only destination) before releasing it.
+    chrome.runtime
+      .sendMessage({ target: "background", type: "drive-done", clipId, ok: false, url, error: e.message || String(e) })
+      .catch(() => releaseClip(url));
+  } finally {
+    activeUploads -= 1;
+  }
+}
+
+// Tries each candidate playlist in order (the master first, then the
+// rendition the player is polling) and keeps the first that works. A master
+// is preferred because it exposes every quality the stream offers.
+async function startSourceCapture({ tabId, playlistUrls, playlistUrl, settings }) {
+  if (sourceBuffers.has(tabId)) throw new Error("Already capturing this tab.");
+  const candidates = (playlistUrls && playlistUrls.length ? playlistUrls : [playlistUrl]).filter(Boolean);
+  let lastError = new Error("No stream playlist to read.");
+
+  for (const url of candidates) {
+    const buffer = new ScpHlsBuffer({
+      tabId,
+      playlistUrl: url,
+      settings,
+      onError: async message => {
+        // Runs before the buffer is cleared: with automation on, save whatever
+        // has not been delivered yet so the end of a stream is never lost.
+        if (buffer.settings.autoClipEnabled) {
+          await deliverSourceClip(tabId, buffer, { auto: true }).catch(() => {});
+        }
+        sourceBuffers.delete(tabId);
+        chrome.runtime
+          .sendMessage({ target: "background", type: "capture-ended", tabId, error: message })
+          .catch(() => {});
+      }
+    });
+    buffer.autoCursor = Date.now(); // automatic clips are saved up to here
+    sourceBuffers.set(tabId, buffer);
+    try {
+      const info = await buffer.start();
+      const v = info.variant;
+      return { quality: v ? `${v.height}p${v.frameRate ? Math.round(v.frameRate) : ""}` : "source" };
+    } catch (e) {
+      sourceBuffers.delete(tabId);
+      buffer.stop();
+      lastError = e;
+    }
+  }
+  throw lastError;
+}
+
+// Automatic clips cover [autoCursor, now) and advance the cursor, so
+// consecutive clips tile the stream with no gap and no overlap.
+async function deliverSourceClip(tabId, buffer, { durationSeconds = 0, auto = false } = {}) {
+  let clip;
+  if (auto) {
+    const since = buffer.autoCursor;
+    const until = Date.now();
+    const waiting = buffer.segments.filter(s => s.t >= since && s.t < until);
+    const seconds = waiting.reduce((a, s) => a + s.duration, 0);
+    if (seconds < MIN_AUTO_CLIP_SECONDS) return false;
+    clip = await buffer.makeClip({ since, until });
+    buffer.autoCursor = until;
+  } else {
+    clip = await buffer.makeClip({ durationSeconds });
+  }
+  publishClip(tabId, clip.blob, {
+    lengthSeconds: clip.lengthSeconds,
+    extension: clip.extension,
+    auto
+  });
+  return true;
+}
+
+async function makeSourceClip(tabId, { durationSeconds, postRollSeconds = 0, auto = false }) {
   const buffer = sourceBuffers.get(tabId);
   if (!buffer) throw new Error("Not capturing this tab.");
-
-  const deliver = async () => {
-    const clip = buffer.makeClip(durationSeconds + (postRollSeconds || 0));
-    const url = URL.createObjectURL(clip.blob);
-    liveUrls.add(url);
-    chrome.runtime
-      .sendMessage({
-        target: "background",
-        type: "clip-ready",
-        tabId,
-        url,
-        sizeBytes: clip.blob.size,
-        lengthSeconds: clip.lengthSeconds,
-        extension: clip.extension
-      })
-      .catch(() => {});
-  };
-
+  if (buffer.segments.length === 0) {
+    throw new Error("Source buffer is still filling — try again in a few seconds.");
+  }
+  if (auto) {
+    const made = await deliverSourceClip(tabId, buffer, { auto: true });
+    return { pending: false, skipped: !made };
+  }
   if (postRollSeconds > 0) {
-    setTimeout(() => { deliver().catch(() => {}); }, postRollSeconds * 1000);
+    setTimeout(() => {
+      deliverSourceClip(tabId, buffer, { durationSeconds: durationSeconds + postRollSeconds }).catch(() => {});
+    }, postRollSeconds * 1000);
     return { pending: true, readyInSeconds: postRollSeconds };
   }
-  await deliver();
+  await deliverSourceClip(tabId, buffer, { durationSeconds });
   return { pending: false };
 }
 
@@ -251,6 +350,7 @@ async function startCapture({ tabId, streamId, settings }) {
     adWindows: [],           // [{ start, end }] epoch ms spans that were ads
     adStartedAt: null,       // set while an ad is on screen
     adSecondsExcluded: 0,
+    autoCursor: Date.now(), // automatic clips are saved up to here
     stopping: false
   };
   captures.set(tabId, state);
@@ -318,7 +418,10 @@ function pruneBuffer(state) {
   // Never prune footage a pending post-roll clip still needs.
   let protectedFrom = Infinity;
   for (const p of state.pendingClips) {
-    protectedFrom = Math.min(protectedFrom, p.requestedAt - p.durationSeconds * 1000);
+    protectedFrom = Math.min(
+      protectedFrom,
+      p.since != null ? p.since : p.requestedAt - p.durationSeconds * 1000
+    );
   }
   while (
     state.chunks.length > 1 &&
@@ -332,7 +435,7 @@ function pruneBuffer(state) {
 
 // Requests a clip. With post-roll, assembly is deferred so the aftermath of
 // the moment is included; the clip-ready message fires when it's done.
-function makeClip(tabId, durationSeconds, postRollSeconds) {
+function makeClip(tabId, { durationSeconds, postRollSeconds = 0, auto = false }) {
   const state = captures.get(tabId);
   if (!state) throw new Error("Not capturing this tab.");
   if (!state.headerChunk || state.chunks.length === 0) {
@@ -342,9 +445,14 @@ function makeClip(tabId, durationSeconds, postRollSeconds) {
   const pending = {
     requestedAt: Date.now(),
     durationSeconds,
-    postRollSeconds: postRollSeconds || 0,
+    postRollSeconds: auto ? 0 : postRollSeconds || 0,
+    auto,
+    // Automatic clips take the exact window since the previous one.
+    since: auto ? state.autoCursor : null,
+    until: auto ? Date.now() : null,
     timer: null
   };
+  if (auto) state.autoCursor = pending.until;
   state.pendingClips.add(pending);
 
   if (pending.postRollSeconds > 0) {
@@ -361,39 +469,47 @@ async function finishPendingClip(state, pending) {
   if (!state.pendingClips.has(pending)) return;
   state.pendingClips.delete(pending);
   if (pending.timer) clearTimeout(pending.timer);
+  // Counted as busy so this document is not closed mid-assembly when the
+  // capture that owned the footage has just been stopped.
+  assembling += 1;
+  try {
+    await assemblePendingClip(state, pending);
+  } finally {
+    assembling -= 1;
+  }
+}
+
+async function assemblePendingClip(state, pending) {
 
   // Flush the in-flight chunk so the clip includes up-to-the-moment footage.
   try { state.recorder.requestData(); } catch { /* recorder may be stopped */ }
   await new Promise(r => setTimeout(r, 150)); // let ondataavailable land
 
-  const startCut = pending.requestedAt - pending.durationSeconds * 1000;
-  const endCut = pending.requestedAt + pending.postRollSeconds * 1000 + CHUNK_MS;
-  const inRange = state.chunks.filter(c => c.t >= startCut && c.t <= endCut);
+  let inRange;
+  if (pending.since != null) {
+    inRange = state.chunks.filter(c => c.t >= pending.since && c.t < pending.until);
+  } else {
+    const startCut = pending.requestedAt - pending.durationSeconds * 1000;
+    const endCut = pending.requestedAt + pending.postRollSeconds * 1000 + CHUNK_MS;
+    inRange = state.chunks.filter(c => c.t >= startCut && c.t <= endCut);
+  }
   // Drop footage recorded while an ad was on screen, so the clip cuts
   // straight from pre-ad content to where the stream resumed.
   const selected = inRange.filter(c => !isDuringAd(state, c.t));
-  if (selected.length === 0 || !state.headerChunk) return;
+  if (!state.headerChunk) return;
+  if (selected.length < (pending.auto ? MIN_AUTO_CLIP_SECONDS : 1)) return;
   const adChunksDropped = inRange.length - selected.length;
 
   const raw = new Blob([state.headerChunk, ...selected.map(c => c.blob)], {
     type: state.recorder.mimeType || "video/webm"
   });
   const blob = await scpRebaseWebmBlob(raw);
-  const url = URL.createObjectURL(blob);
-  liveUrls.add(url);
-
-  chrome.runtime
-    .sendMessage({
-      target: "background",
-      type: "clip-ready",
-      tabId: state.tabId,
-      url,
-      sizeBytes: blob.size,
-      lengthSeconds: Math.round(selected.length * (CHUNK_MS / 1000)),
-      adSecondsRemoved: Math.round(adChunksDropped * (CHUNK_MS / 1000)),
-      extension: "webm"
-    })
-    .catch(() => {});
+  publishClip(state.tabId, blob, {
+    lengthSeconds: Math.round(selected.length * (CHUNK_MS / 1000)),
+    adSecondsRemoved: Math.round(adChunksDropped * (CHUNK_MS / 1000)),
+    extension: "webm",
+    auto: pending.auto
+  });
 }
 
 function getStats(tabId) {
@@ -446,10 +562,13 @@ async function flushPendingClips(state) {
   for (const p of pendings) await finishPendingClip(state, p);
 }
 
-async function stopCapture(tabId) {
+async function stopCapture(tabId, { flushAuto = false } = {}) {
   const state = captures.get(tabId);
   if (!state) return;
   state.stopping = true;
+  if (flushAuto && state.headerChunk && state.chunks.length > 0) {
+    try { makeClip(tabId, { auto: true }); } catch { /* nothing to save */ }
+  }
   await flushPendingClips(state);
   try { state.recorder.stop(); } catch { /* already stopped */ }
   if (state.cropper) state.cropper.stop();
@@ -462,7 +581,7 @@ async function stopCapture(tabId) {
 async function endCapture(tabId, error) {
   const state = captures.get(tabId);
   if (!state || state.stopping) return;
-  await stopCapture(tabId);
+  await stopCapture(tabId, { flushAuto: !!state.settings.autoClipEnabled });
   chrome.runtime
     .sendMessage({ target: "background", type: "capture-ended", tabId, error })
     .catch(() => {});
@@ -486,17 +605,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "stop-capture": {
           const buffer = sourceBuffers.get(msg.tabId);
           if (buffer) {
+            if (msg.flushAuto) {
+              await deliverSourceClip(msg.tabId, buffer, { auto: true }).catch(() => {});
+            }
             buffer.stop();
             sourceBuffers.delete(msg.tabId);
           }
-          await stopCapture(msg.tabId);
+          await stopCapture(msg.tabId, { flushAuto: !!msg.flushAuto });
           sendResponse({ ok: true });
           break;
         }
         case "make-clip": {
+          const request = {
+            durationSeconds: msg.durationSeconds,
+            postRollSeconds: msg.postRollSeconds,
+            auto: !!msg.auto
+          };
           const res = sourceBuffers.has(msg.tabId)
-            ? await makeSourceClip(msg.tabId, msg.durationSeconds, msg.postRollSeconds)
-            : makeClip(msg.tabId, msg.durationSeconds, msg.postRollSeconds);
+            ? await makeSourceClip(msg.tabId, request)
+            : makeClip(msg.tabId, request);
           sendResponse({ ok: true, ...res });
           break;
         }
@@ -550,14 +677,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // session registry — this document is the authority on what is live.
           sendResponse({
             ok: true,
-            tabIds: [...new Set([...captures.keys(), ...sourceBuffers.keys()])]
+            tabIds: [...new Set([...captures.keys(), ...sourceBuffers.keys()])],
+            // Clips still being downloaded or uploaded keep this document alive.
+            busy: clips.size + activeUploads + assembling
           });
           break;
-        case "release-url":
-          if (liveUrls.has(msg.url)) {
-            URL.revokeObjectURL(msg.url);
-            liveUrls.delete(msg.url);
+        case "hold-url": {
+          // How many deliveries will consume this clip. Zero means none will.
+          const clip = clips.get(msg.url);
+          if (clip) {
+            clip.holds = msg.holds;
+            if (clip.holds <= 0) releaseClip(msg.url);
           }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "release-url":
+          releaseClip(msg.url);
+          sendResponse({ ok: true });
+          break;
+        case "drive-upload":
+          uploadClipToDrive(msg); // long-running; reports via drive-done
           sendResponse({ ok: true });
           break;
         default:

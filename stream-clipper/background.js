@@ -2,7 +2,7 @@
 // Owns the session registry, routes work to the offscreen capture document,
 // and turns finished clips into downloads + notifications.
 
-importScripts("shared/settings.js", "shared/hls-parse.js");
+importScripts("shared/settings.js", "shared/hls-parse.js", "drive-auth.js");
 
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 
@@ -13,14 +13,25 @@ const OFFSCREEN_URL = "offscreen/offscreen.html";
 
 // tabId -> { tabId, title, url, site, streamer, startedAt, status, mode, lastError }
 const sessions = new Map();
-// downloadId -> objectUrl (revoked in offscreen once the download finishes)
+// downloadId -> { url, clipId } for local saves still in progress
 const pendingDownloads = new Map();
 // Tabs the user explicitly stopped — auto-start won't re-arm them until navigation.
 const manualStops = new Set();
 // tabId -> { url, seenAt } — the newest HLS playlist the tab requested.
 const playlistsByTab = new Map();
 
-const HISTORY_LIMIT = 50;
+const HISTORY_LIMIT = 200;
+const AUTO_CLIP_ALARM = "scp-auto-clip";
+// Sessions that just ended, kept briefly so a final clip that arrives a moment
+// after its capture stopped is still named after the right streamer.
+const endedSessions = new Map();
+
+function rememberEnded(tabId) {
+  const session = sessions.get(tabId);
+  if (!session) return;
+  endedSessions.set(tabId, session);
+  setTimeout(() => endedSessions.delete(tabId), 60_000);
+}
 const PLAYLIST_TTL_MS = 5 * 60 * 1000;
 
 // Starts in flight, keyed by tab. The popup's auto-start and a user click can
@@ -38,7 +49,10 @@ function hydrate() {
 }
 
 async function doHydrate() {
-  const stored = await chrome.storage.session.get(["sessions", "playlists", "manualStops"]);
+  const stored = await chrome.storage.session.get([
+    "sessions", "playlists", "manualStops", "pendingDownloads"
+  ]);
+  for (const [k, v] of Object.entries(stored.pendingDownloads || {})) pendingDownloads.set(Number(k), v);
   for (const [k, v] of Object.entries(stored.playlists || {})) playlistsByTab.set(Number(k), v);
   for (const id of stored.manualStops || []) manualStops.add(id);
   for (const [k, v] of Object.entries(stored.sessions || {})) sessions.set(Number(k), v);
@@ -79,22 +93,34 @@ async function persistManualStops() {
 // Watch for the stream's own HLS playlist so we can buffer original segments
 // instead of re-encoding the rendered tab. Observation only — nothing is
 // blocked, redirected or modified.
+//
+// Two URLs are kept per tab. Players request the master playlist first (it
+// lists every quality) and then poll one rendition every couple of seconds,
+// so `first` is the route to the best quality and `latest` is a fallback
+// that is always fresh.
 chrome.webRequest.onBeforeRequest.addListener(
   details => {
-    if (details.tabId < 0) return;
+    if (details.tabId < 0) return; // our own fetches from the offscreen document
     const url = details.url;
     if (!/\.m3u8(\?|$)/i.test(url)) return;
-    const existing = playlistsByTab.get(details.tabId);
-    // Prefer a master playlist (it lists every quality) over a rendition one.
-    const isMasterish = /master|playlist/i.test(url);
-    if (existing && !isMasterish && Date.now() - existing.seenAt < 30_000) return;
-    playlistsByTab.set(details.tabId, { url, seenAt: Date.now() });
-    persistPlaylists().catch(() => {});
+    const now = Date.now();
+    const entry = playlistsByTab.get(details.tabId);
+    if (!entry) {
+      playlistsByTab.set(details.tabId, { first: { url, seenAt: now }, latest: { url, seenAt: now } });
+      persistPlaylists().catch(() => {});
+    } else {
+      const stale = now - entry.latest.seenAt > 30_000;
+      entry.latest = { url, seenAt: now };
+      // Rendition polls arrive every ~2s; persisting each one is pointless.
+      if (stale) persistPlaylists().catch(() => {});
+    }
+    maybeAutoMonitor(details.tabId).catch(() => {});
   },
   { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] }
 );
 
-async function getPlaylistForTab(tabId) {
+// Candidate playlist URLs for a tab, best first.
+async function getPlaylistsForTab(tabId) {
   let entry = playlistsByTab.get(tabId);
   if (!entry) {
     // A restarted worker may not have seen the request itself.
@@ -102,9 +128,27 @@ async function getPlaylistForTab(tabId) {
     entry = playlists[tabId];
     if (entry) playlistsByTab.set(tabId, entry);
   }
-  if (!entry) return null;
-  if (Date.now() - entry.seenAt > PLAYLIST_TTL_MS) return null;
-  return entry.url;
+  if (!entry || !entry.latest) return [];
+  if (Date.now() - entry.latest.seenAt > PLAYLIST_TTL_MS) return [];
+  return [...new Set([entry.first.url, entry.latest.url])];
+}
+
+// Hands-free start: when a live channel page begins playing, buffer it
+// without waiting for a click. Only source capture can do this — recording a
+// tab's pixels requires the user to invoke the extension on that tab.
+const autoMonitorAttempts = new Map(); // tabId -> last attempt, to avoid retry storms
+
+async function maybeAutoMonitor(tabId) {
+  if (sessions.has(tabId) || startsInFlight.has(tabId)) return;
+  await hydrate();
+  if (sessions.has(tabId) || manualStops.has(tabId) || startsInFlight.has(tabId)) return;
+  if (Date.now() - (autoMonitorAttempts.get(tabId) || 0) < 30_000) return;
+  autoMonitorAttempts.set(tabId, Date.now());
+  const settings = await scpLoadSettings();
+  if (!settings.autoMonitor || settings.captureMode === "tab") return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || !scpIsLiveChannelPage(tab.url || "")) return;
+  await startCapture(tabId, { sourceOnly: true });
 }
 
 let creatingOffscreen = null;
@@ -135,12 +179,13 @@ async function ensureOffscreenDocument() {
 // the registry here can lag behind, and trusting it has torn down live
 // captures for other tabs.
 async function maybeCloseOffscreen() {
-  if (pendingDownloads.size > 0) return;
   if (!(await chrome.offscreen.hasDocument())) return;
   const live = await chrome.runtime
     .sendMessage({ target: "offscreen", type: "list-captures" })
     .catch(() => null);
   if (live && live.ok && live.tabIds.length > 0) return;
+  // Clips still downloading, uploading to Drive or being assembled live there.
+  if (live && live.ok && live.busy > 0) return;
   if (sessions.size > 0) return;
   try { await chrome.offscreen.closeDocument(); } catch { /* already closed */ }
 }
@@ -191,7 +236,7 @@ function startCapture(tabId, opts = {}) {
   return attempt;
 }
 
-async function doStartCapture(tabId, { auto = false } = {}) {
+async function doStartCapture(tabId, { auto = false, sourceOnly = false } = {}) {
   if (sessions.has(tabId)) {
     // Already running is the state the caller asked for — not an error.
     const s = sessions.get(tabId);
@@ -223,7 +268,8 @@ async function doStartCapture(tabId, { auto = false } = {}) {
   await persistSessions();
   updateBadge();
 
-  const playlistUrl = await getPlaylistForTab(tabId);
+  const playlistUrls = await getPlaylistsForTab(tabId);
+  const playlistUrl = playlistUrls[0] || null;
   const wantSource = settings.captureMode !== "tab" && !!playlistUrl;
   let res = null;
 
@@ -233,7 +279,7 @@ async function doStartCapture(tabId, { auto = false } = {}) {
       target: "offscreen",
       type: "start-source-capture",
       tabId,
-      playlistUrl,
+      playlistUrls,
       settings
     }).catch(e => ({ ok: false, error: e.message }));
     if (res && res.ok) {
@@ -248,7 +294,7 @@ async function doStartCapture(tabId, { auto = false } = {}) {
 
   // Source mode was requested explicitly but unavailable — say so rather than
   // silently downgrading the quality the user asked for.
-  if (settings.captureMode === "source") {
+  if (settings.captureMode === "source" || sourceOnly) {
     sessions.delete(tabId);
     await persistSessions();
     updateBadge();
@@ -285,26 +331,31 @@ async function doStartCapture(tabId, { auto = false } = {}) {
   return { ok: true, mode: "tab" };
 }
 
-async function stopCapture(tabId, { silent = false, byUser = false } = {}) {
+async function stopCapture(tabId, { byUser = false } = {}) {
   if (!sessions.has(tabId)) return { ok: true };
   if (byUser) {
     manualStops.add(tabId);
     await persistManualStops();
   }
+  const settings = await scpLoadSettings();
+  rememberEnded(tabId);
   await chrome.runtime
-    .sendMessage({ target: "offscreen", type: "stop-capture", tabId })
+    .sendMessage({
+      target: "offscreen",
+      type: "stop-capture",
+      tabId,
+      // With automation on, whatever has not been saved yet is saved now.
+      flushAuto: settings.autoClipEnabled
+    })
     .catch(() => {});
   sessions.delete(tabId);
   await persistSessions();
   updateBadge();
   await maybeCloseOffscreen();
-  if (!silent) {
-    // no notification on manual stop — the popup already reflects it
-  }
   return { ok: true };
 }
 
-async function requestClip(tabId, durationSeconds) {
+async function requestClip(tabId, durationSeconds, { auto = false } = {}) {
   const session = sessions.get(tabId);
   if (!session) return { ok: false, error: "This tab isn't being monitored." };
   const settings = await scpLoadSettings();
@@ -317,12 +368,13 @@ async function requestClip(tabId, durationSeconds) {
     type: "make-clip",
     tabId,
     durationSeconds: dur,
-    postRollSeconds: settings.postRollSeconds
+    postRollSeconds: settings.postRollSeconds,
+    auto
   }).catch(e => ({ ok: false, error: e.message }));
   if (!res || !res.ok) {
     return { ok: false, error: (res && res.error) || "Clip failed." };
   }
-  return res; // download is kicked off by the clip-ready message
+  return res; // delivery is kicked off by the clip-ready message
 }
 
 async function clipAll(durationSeconds) {
@@ -331,9 +383,103 @@ async function clipAll(durationSeconds) {
   return { ok: true, count: results.filter(r => r.ok).length, total: ids.length };
 }
 
+// ---------------------------------------------------------------- automation
+
+function autoClipIntervalMs(settings) {
+  return scpAutoClipSeconds(settings) * 1000;
+}
+
+async function runAutoClips() {
+  const settings = await scpLoadSettings();
+  if (!settings.autoClipEnabled || sessions.size === 0) return;
+  const interval = autoClipIntervalMs(settings);
+  const now = Date.now();
+  let changed = false;
+  for (const session of sessions.values()) {
+    if (session.status !== "recording") continue;
+    const last = session.lastAutoClipAt || session.startedAt;
+    // Alarms tick once a minute; a few seconds of slack keeps the cadence
+    // from slipping a whole minute each round.
+    if (now - last < interval - 5000) continue;
+    session.lastAutoClipAt = now;
+    changed = true;
+    requestClip(session.tabId, 0, { auto: true }).catch(() => {});
+  }
+  if (changed) await persistSessions();
+}
+
+chrome.alarms.get(AUTO_CLIP_ALARM).then(existing => {
+  if (!existing) chrome.alarms.create(AUTO_CLIP_ALARM, { periodInMinutes: 1 });
+});
+chrome.alarms.onAlarm.addListener(async alarm => {
+  if (alarm.name !== AUTO_CLIP_ALARM) return;
+  await hydrate();
+  await runAutoClips();
+});
+
+// ------------------------------------------------------------------ delivery
+
+// History writes are serialized: a Drive progress update and a finished
+// download can land together, and read-modify-write would drop one of them.
+let historyQueue = Promise.resolve();
+
+function mutateHistory(mutate) {
+  historyQueue = historyQueue
+    .then(async () => {
+      const { clipHistory = [] } = await chrome.storage.local.get("clipHistory");
+      mutate(clipHistory);
+      if (clipHistory.length > HISTORY_LIMIT) clipHistory.length = HISTORY_LIMIT;
+      await chrome.storage.local.set({ clipHistory });
+    })
+    .catch(() => {});
+  return historyQueue;
+}
+
+function patchClip(clipId, patch) {
+  return mutateHistory(list => {
+    const entry = list.find(c => c.clipId === clipId);
+    if (entry) Object.assign(entry, patch);
+  });
+}
+
+async function findClip(clipId) {
+  await historyQueue;
+  const { clipHistory = [] } = await chrome.storage.local.get("clipHistory");
+  return clipHistory.find(c => c.clipId === clipId) || null;
+}
+
+function releaseClipUrl(url) {
+  return chrome.runtime.sendMessage({ target: "offscreen", type: "release-url", url }).catch(() => {});
+}
+
+async function persistPendingDownloads() {
+  await chrome.storage.session.set({ pendingDownloads: Object.fromEntries(pendingDownloads) });
+}
+
+async function startLocalDownload(clipId, url, filename, saveAs) {
+  try {
+    const downloadId = await chrome.downloads.download({
+      url,
+      filename,
+      saveAs: !!saveAs,
+      conflictAction: "uniquify"
+    });
+    pendingDownloads.set(downloadId, { url, clipId });
+    await persistPendingDownloads();
+    await patchClip(clipId, { downloadId, local: "saving" });
+    return downloadId;
+  } catch (e) {
+    await patchClip(clipId, { local: "failed", localError: e.message || String(e) });
+    await releaseClipUrl(url);
+    return null;
+  }
+}
+
+// A finished clip is delivered to each enabled destination. The offscreen
+// document keeps the blob alive until every one of them has finished.
 async function handleClipReady(msg) {
-  // msg: { tabId, url (blob), lengthSeconds, sizeBytes, extension }
-  const session = sessions.get(msg.tabId) || {};
+  // msg: { tabId, url (blob), lengthSeconds, sizeBytes, extension, auto }
+  const session = sessions.get(msg.tabId) || endedSessions.get(msg.tabId) || {};
   const settings = await scpLoadSettings();
   const filename = scpBuildFileName(settings.fileNameTemplate, {
     site: session.site,
@@ -343,69 +489,130 @@ async function handleClipReady(msg) {
     extension: msg.extension,
     timestamp: Date.now()
   });
-  try {
-    const downloadId = await chrome.downloads.download({
-      url: msg.url,
-      filename,
-      saveAs: settings.askWhereToSave,
-      conflictAction: "uniquify"
-    });
-    pendingDownloads.set(downloadId, msg.url);
-    await recordClipHistory({
-      downloadId,
+
+  const drive = await scpDriveStatus();
+  const wantDrive = settings.driveEnabled && drive.connected && drive.hasClientId;
+  // Never let a clip go nowhere: without a usable Drive, save it locally.
+  const wantLocal = settings.saveLocally || !wantDrive;
+  const clipId = crypto.randomUUID();
+
+  await chrome.runtime
+    .sendMessage({ target: "offscreen", type: "hold-url", url: msg.url, holds: (wantLocal ? 1 : 0) + (wantDrive ? 1 : 0) })
+    .catch(() => {});
+
+  await mutateHistory(list => {
+    list.unshift({
+      clipId,
       filename,
       site: session.site || "Stream",
       streamer: session.streamer || "stream",
       lengthSeconds: msg.lengthSeconds,
       sizeBytes: msg.sizeBytes,
       adSecondsRemoved: msg.adSecondsRemoved || 0,
-      time: Date.now()
+      auto: !!msg.auto,
+      time: Date.now(),
+      local: wantLocal ? "saving" : "off",
+      drive: wantDrive ? "uploading" : settings.driveEnabled ? "failed" : "off",
+      driveProgress: 0,
+      driveError: settings.driveEnabled && !wantDrive ? "Google Drive is not connected." : ""
     });
-    if (settings.notifyOnClipSaved) {
-      const mb = (msg.sizeBytes / (1024 * 1024)).toFixed(1);
-      notify(
-        `clip-${downloadId}`,
-        "Clip saved",
-        `${session.streamer || "Stream"} — last ${msg.lengthSeconds}s (${mb} MB)`
-      );
+  });
+
+  let downloadId = null;
+  if (wantLocal) {
+    downloadId = await startLocalDownload(clipId, msg.url, filename, settings.askWhereToSave && !msg.auto);
+  }
+  if (wantDrive) {
+    const folderPath = [settings.driveFolderName];
+    if (settings.driveFolderPerStreamer) {
+      folderPath.push(scpSanitizeFileComponent(session.streamer || "stream"));
     }
-  } catch (e) {
-    chrome.runtime.sendMessage({ target: "offscreen", type: "release-url", url: msg.url }).catch(() => {});
-    if (settings.notifyOnCaptureError) {
-      notify(`cliperr-${Date.now()}`, "Clip could not be saved", e.message || String(e));
-    }
+    await chrome.runtime
+      .sendMessage({
+        target: "offscreen",
+        type: "drive-upload",
+        url: msg.url,
+        clipId,
+        name: filename.split("/").pop(),
+        folderPath
+      })
+      .catch(() => {});
+  }
+
+  // Automatic clips stay quiet unless the user asked to hear about them.
+  const shouldNotify = msg.auto ? settings.notifyOnAutoClip : settings.notifyOnClipSaved;
+  if (shouldNotify) {
+    const mb = (msg.sizeBytes / (1024 * 1024)).toFixed(1);
+    notify(
+      downloadId != null ? `clip-${downloadId}` : `clipd-${clipId}`,
+      msg.auto ? "Auto-clip saved" : "Clip saved",
+      `${session.streamer || "Stream"} — ${scpFormatDuration(msg.lengthSeconds)} (${mb} MB)` +
+        (wantDrive ? " · uploading to Drive" : "")
+    );
   }
 }
 
-async function recordClipHistory(entry) {
-  const { clipHistory = [] } = await chrome.storage.local.get("clipHistory");
-  clipHistory.unshift(entry);
-  if (clipHistory.length > HISTORY_LIMIT) clipHistory.length = HISTORY_LIMIT;
-  await chrome.storage.local.set({ clipHistory });
+async function handleDriveDone(msg) {
+  if (msg.ok) {
+    await patchClip(msg.clipId, {
+      drive: "uploaded",
+      driveProgress: 1,
+      driveFileId: msg.id || "",
+      driveLink: msg.webViewLink || "",
+      driveError: ""
+    });
+    await maybeCloseOffscreen();
+    return;
+  }
+
+  const entry = await findClip(msg.clipId);
+  await patchClip(msg.clipId, { drive: "failed", driveError: msg.error || "Upload failed." });
+  if (msg.url) {
+    if (entry && entry.local === "off") {
+      // The upload was this clip's only destination. Save it locally instead
+      // of losing it; the blob's remaining hold is released when that ends.
+      await startLocalDownload(msg.clipId, msg.url, entry.filename, false);
+    } else {
+      await releaseClipUrl(msg.url);
+    }
+  }
+  const settings = await scpLoadSettings();
+  if (settings.notifyOnCaptureError) {
+    notify(
+      `drive-${msg.clipId}`,
+      "Google Drive upload failed",
+      `${msg.error || "Upload failed."}${entry && entry.local === "off" ? " The clip was saved to Downloads instead." : ""}`
+    );
+  }
 }
 
-// Clicking a "Clip saved" notification reveals the file in the file manager.
+// Clicking a "Clip saved" notification reveals the file; anything else opens
+// the dashboard's clip library.
 chrome.notifications.onClicked.addListener(id => {
   const m = /^clip-(\d+)$/.exec(id);
   if (m) chrome.downloads.show(Number(m[1]));
+  else chrome.tabs.create({ url: chrome.runtime.getURL("dashboard/dashboard.html#library") });
   chrome.notifications.clear(id);
 });
 
-chrome.downloads.onChanged.addListener(delta => {
-  if (!pendingDownloads.has(delta.id)) return;
+chrome.downloads.onChanged.addListener(async delta => {
   const state = delta.state && delta.state.current;
-  if (state === "complete" || state === "interrupted") {
-    const url = pendingDownloads.get(delta.id);
-    pendingDownloads.delete(delta.id);
-    chrome.runtime.sendMessage({ target: "offscreen", type: "release-url", url }).catch(() => {});
-    maybeCloseOffscreen();
-  }
+  if (state !== "complete" && state !== "interrupted") return;
+  await hydrate();
+  const info = pendingDownloads.get(delta.id);
+  if (!info) return;
+  pendingDownloads.delete(delta.id);
+  await persistPendingDownloads();
+  await patchClip(info.clipId, { local: state === "complete" ? "saved" : "failed" });
+  await releaseClipUrl(info.url);
+  await maybeCloseOffscreen();
 });
 
 async function handleCaptureEnded(msg) {
   // Offscreen tells us a capture died (tab closed, stream ended, error).
   const session = sessions.get(msg.tabId);
   if (!session) return;
+  rememberEnded(msg.tabId);
   sessions.delete(msg.tabId);
   await persistSessions();
   updateBadge();
@@ -425,6 +632,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     await hydrate();
     switch (msg.type) {
+      case "drive-token":
+        // From the offscreen uploader. Never interactive: uploads run unattended.
+        sendResponse({ ok: true, token: await scpDriveToken({ force: !!msg.force }) });
+        break;
+      case "drive-progress":
+        await patchClip(msg.clipId, { driveProgress: msg.fraction });
+        sendResponse({ ok: true });
+        break;
+      case "drive-done":
+        await handleDriveDone(msg);
+        sendResponse({ ok: true });
+        break;
+      case "drive-connect":
+        sendResponse({ ok: true, account: await scpDriveConnect() });
+        break;
+      case "drive-disconnect":
+        await scpDriveDisconnect();
+        sendResponse({ ok: true });
+        break;
+      case "drive-status":
+        sendResponse({ ok: true, status: await scpDriveStatus() });
+        break;
       case "start-capture":
         sendResponse(await startCapture(msg.tabId, { auto: !!msg.auto }));
         break;
@@ -458,6 +687,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return { ...s, stats: stats && stats.ok ? stats.stats : null };
           })
         );
+        const settings = await scpLoadSettings();
+        const interval = autoClipIntervalMs(settings);
+        for (const s of list) {
+          s.autoNextAt = settings.autoClipEnabled
+            ? (s.lastAutoClipAt || s.startedAt) + interval
+            : null;
+        }
         sendResponse({ ok: true, sessions: list });
         break;
       }
@@ -485,7 +721,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       default:
         sendResponse({ ok: false, error: `Unknown message: ${msg.type}` });
     }
-  })();
+  })().catch(e => {
+    // An exception must still answer the caller, or its promise never settles.
+    sendResponse({ ok: false, error: (e && e.message) || String(e) });
+  });
   return true; // async response
 });
 
@@ -503,6 +742,10 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
 chrome.commands.onCommand.addListener(async command => {
   await hydrate();
   const settings = await scpLoadSettings();
+  if (command === "open-dashboard") {
+    await chrome.tabs.create({ url: chrome.runtime.getURL("dashboard/dashboard.html") });
+    return;
+  }
   if (command === "clip-all-tabs") {
     await clipAll(settings.defaultClipSeconds);
     return;
@@ -534,22 +777,37 @@ chrome.tabs.onRemoved.addListener(async tabId => {
   manualStops.delete(tabId);
   playlistsByTab.delete(tabId);
   await Promise.all([persistManualStops(), persistPlaylists()]);
-  if (sessions.has(tabId)) await stopCapture(tabId, { silent: true });
+  if (sessions.has(tabId)) await stopCapture(tabId);
 });
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (!changeInfo.url && !changeInfo.title) return;
   await hydrate();
-  if (changeInfo.url) {
-    // New page — auto-start may apply again, and the old playlist is stale.
-    manualStops.delete(tabId);
-    playlistsByTab.delete(tabId);
-    await Promise.all([persistManualStops(), persistPlaylists()]);
-  }
   const s = sessions.get(tabId);
-  if (s && changeInfo.title) {
-    s.title = changeInfo.title;
+  if (changeInfo.url) {
+    const samePage = s && scpPageKey(s.url) === scpPageKey(changeInfo.url);
+    if (!samePage) {
+      // A different page in the same tab (e.g. clicking through to another
+      // channel). Source capture does not depend on the tab, so it would keep
+      // buffering the previous stream forever — stop it, saving what is left.
+      if (s) await stopCapture(tabId);
+      manualStops.delete(tabId);
+      playlistsByTab.delete(tabId);
+      autoMonitorAttempts.delete(tabId);
+      await Promise.all([persistManualStops(), persistPlaylists()]);
+    }
+  }
+  const current = sessions.get(tabId);
+  if (current && changeInfo.title) {
+    current.title = changeInfo.title;
     await persistSessions();
   }
 });
 
 updateBadge();
+
+// First run: open the dashboard so the user sees what is already switched on.
+chrome.runtime.onInstalled.addListener(details => {
+  if (details.reason === "install") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("dashboard/dashboard.html#live") });
+  }
+});

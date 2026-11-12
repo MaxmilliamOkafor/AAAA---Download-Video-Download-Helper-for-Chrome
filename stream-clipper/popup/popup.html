@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>StreamClip Pro</title>
+  <link rel="stylesheet" href="../ui/theme.css" />
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -15,102 +16,55 @@
       </span>
     </div>
     <div class="header-actions">
-      <button id="clip-all" class="btn btn-ghost" hidden>⚡ Clip all</button>
-      <button id="open-options" class="icon-btn" title="Settings" aria-label="Open settings">⚙</button>
+      <button id="clip-all" class="btn btn-ghost" type="button" hidden>⚡ Clip all</button>
+      <button id="open-dashboard" class="btn btn-ghost" type="button" title="Open the full dashboard">Dashboard</button>
     </div>
   </header>
 
-  <nav class="tabs" role="tablist" aria-label="Views">
-    <button id="tab-streams" class="tab active" role="tab" aria-selected="true" aria-controls="sessions">
-      Streams<span class="tab-count" id="streams-count" hidden></span>
-    </button>
-    <button id="tab-history" class="tab" role="tab" aria-selected="false" aria-controls="history-view">
-      Clips<span class="tab-count" id="history-badge" hidden></span>
-    </button>
-  </nav>
+  <section class="auto-bar" aria-label="Automation">
+    <label class="auto-toggle">
+      <span class="switch">
+        <input id="auto-switch" type="checkbox" aria-describedby="auto-desc" />
+        <span class="track"></span>
+      </span>
+      <span class="auto-text">
+        <span class="auto-title">Auto-clip</span>
+        <span class="auto-desc" id="auto-desc">Off — clips are saved only when you ask</span>
+      </span>
+    </label>
+    <span id="drive-pill" class="status" hidden></span>
+  </section>
 
   <section id="current-tab" class="current-tab" hidden>
     <div class="current-tab-info">
       <span id="current-site" class="site-chip"></span>
       <span id="current-title" class="tab-title"></span>
     </div>
-    <button id="start-current" class="btn btn-primary">Start monitoring</button>
+    <button id="start-current" class="btn btn-primary" type="button">Start monitoring</button>
   </section>
 
-  <div id="error" class="error" role="alert" hidden></div>
+  <div id="error" class="alert popup-alert" role="alert" hidden></div>
 
-  <section id="sessions" role="tabpanel" aria-labelledby="tab-streams"></section>
+  <main id="sessions" class="sessions" aria-label="Monitored streams"></main>
 
   <div id="empty" class="empty" hidden>
     <div class="empty-icon" aria-hidden="true">🎬</div>
     <h3>No streams monitored</h3>
-    <p>Open a Twitch, Kick or YouTube stream and start monitoring. StreamClip keeps a rolling buffer while you watch, so you can save a moment after it happens.</p>
-    <p class="hint"><kbd>Alt</kbd>+<kbd>C</kbd> clips instantly · nothing is saved unless you ask</p>
+    <p>Open a live stream on Twitch, Kick or YouTube — monitoring starts by itself and clips are saved automatically. On other sites, press <strong>Start monitoring</strong>.</p>
+    <p class="hint"><kbd>Alt</kbd>+<kbd>C</kbd> clips instantly · <kbd>Alt</kbd>+<kbd>M</kbd> starts or stops monitoring</p>
   </div>
 
-  <section id="history-view" role="tabpanel" aria-labelledby="tab-history" hidden>
-    <div class="history-toolbar">
-      <span id="history-count" class="history-count"></span>
-      <button id="clear-history" class="btn btn-ghost">Clear list</button>
+  <section id="recent" class="recent" hidden>
+    <div class="recent-head">
+      <span class="clip-label">Recent clips</span>
+      <button id="open-library" class="link-btn" type="button">View all</button>
     </div>
-    <div id="history-list"></div>
-    <div id="history-empty" class="empty" hidden>
-      <div class="empty-icon" aria-hidden="true">📁</div>
-      <h3>No clips yet</h3>
-      <p>Saved clips appear here with a shortcut to the file.</p>
-    </div>
+    <div id="recent-list"></div>
   </section>
 
-  <template id="session-template">
-    <article class="session">
-      <div class="session-head">
-        <span class="site-chip"></span>
-        <span class="session-name"></span>
-        <span class="rec-dot" title="Buffering" aria-hidden="true">●</span>
-        <button class="icon-btn stop" title="Stop monitoring" aria-label="Stop monitoring">✕</button>
-      </div>
-      <div class="quality-row">
-        <span class="mode-badge"></span>
-        <span class="format-tag" hidden></span>
-        <select class="quality-select" aria-label="Capture quality" hidden></select>
-        <span class="quality-line"></span>
-      </div>
-      <div class="session-meta"><span class="buffer-info"></span></div>
-      <div class="ad-note" hidden></div>
-      <div class="buffer-bar" role="progressbar" aria-label="Buffer filled" aria-valuemin="0" aria-valuemax="100">
-        <div class="buffer-fill"></div>
-      </div>
-      <div class="clip-row">
-        <span class="clip-label">Save the last</span>
-        <div class="clip-buttons"></div>
-      </div>
-      <!-- No ids here: this template is cloned once per monitored stream, so
-           ids would collide across cards. aria-label carries the naming. -->
-      <div class="custom-row">
-        <input class="custom-min" type="number" min="0" max="240" placeholder="min"
-               aria-label="Custom clip length, minutes" />
-        <span aria-hidden="true">:</span>
-        <input class="custom-sec" type="number" min="0" max="59" placeholder="sec"
-               aria-label="Custom clip length, seconds" />
-        <button class="btn btn-ghost custom-clip">Clip</button>
-      </div>
-    </article>
-  </template>
-
-  <template id="history-item-template">
-    <div class="history-item">
-      <div class="history-body">
-        <div class="history-main">
-          <span class="site-chip"></span>
-          <span class="history-name"></span>
-        </div>
-        <div class="history-meta"></div>
-      </div>
-      <button class="btn btn-ghost show-file" title="Reveal the file">Show file</button>
-    </div>
-  </template>
-
   <script src="../shared/settings.js"></script>
+  <script src="../ui/common.js"></script>
+  <script src="../ui/stream-cards.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

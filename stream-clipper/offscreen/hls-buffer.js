@@ -103,7 +103,10 @@ class ScpHlsBuffer {
       height: v ? v.height : 0,
       frameRate: v && v.frameRate ? Math.round(v.frameRate) : 0,
       codec: v ? scpCodecLabel(v.codecs) : "",
-      container: this.container,
+      // What a saved clip will be, after any MP4 rewrap.
+      container: this.container === "ts" && this.settings.outputFormat !== "original"
+        ? "mp4"
+        : this.container,
       adSegmentsSkipped: this.adSegmentsSkipped,
       inAdBreak: this.inAdBreak,
       // Everything the stream offers, so the popup can present a real picker.
@@ -124,27 +127,51 @@ class ScpHlsBuffer {
     };
   }
 
-  // Returns a Blob of the trailing `durationSeconds` of original segments.
-  makeClip(durationSeconds) {
-    if (this.segments.length === 0) {
+  // Builds a clip from original segments.
+  //   { durationSeconds }  -> the trailing N seconds (manual clips)
+  //   { since, until }     -> segments that arrived in that time window
+  //                           (automatic clips, which must tile exactly)
+  // MPEG-TS is rewrapped as MP4 when requested; the samples are untouched.
+  async makeClip({ durationSeconds = 0, since = null, until = null } = {}) {
+    let selected = [];
+    if (since != null) {
+      const end = until != null ? until : Infinity;
+      selected = this.segments.filter(s => s.t >= since && s.t < end);
+    } else {
+      let total = 0;
+      for (let i = this.segments.length - 1; i >= 0; i--) {
+        selected.unshift(this.segments[i]);
+        total += this.segments[i].duration;
+        if (total >= durationSeconds) break;
+      }
+    }
+    if (selected.length === 0) {
       throw new Error("Source buffer is still filling — try again in a few seconds.");
     }
-    const selected = [];
-    let total = 0;
-    // Walk backwards from newest until we have enough footage.
-    for (let i = this.segments.length - 1; i >= 0; i--) {
-      selected.unshift(this.segments[i]);
-      total += this.segments[i].duration;
-      if (total >= durationSeconds) break;
+    const total = selected.reduce((a, s) => a + s.duration, 0);
+
+    if (this.container === "ts" && this.settings.outputFormat !== "original") {
+      try {
+        const out = await scpRemuxTsToMp4(
+          selected.map(s => ({ blob: s.bytes, duration: s.duration, seq: s.seq }))
+        );
+        return {
+          blob: new Blob(out.parts, { type: "video/mp4" }),
+          lengthSeconds: Math.round(total),
+          extension: "mp4"
+        };
+      } catch (e) {
+        // Never lose a clip to a container problem: fall back to the original.
+        console.warn("StreamClip: MP4 remux failed, saving .ts instead:", e.message);
+      }
     }
+
     const parts = [];
     // fMP4 needs its init segment first or the file is undecodable.
     if (this.container === "mp4" && this.initSegment) parts.push(this.initSegment.bytes);
     for (const s of selected) parts.push(s.bytes);
-
-    const type = this.container === "mp4" ? "video/mp4" : "video/mp2t";
     return {
-      blob: new Blob(parts, { type }),
+      blob: new Blob(parts, { type: this.container === "mp4" ? "video/mp4" : "video/mp2t" }),
       lengthSeconds: Math.round(total),
       extension: this.container === "mp4" ? "mp4" : "ts"
     };
@@ -216,7 +243,8 @@ class ScpHlsBuffer {
       this.#prune();
 
       if (playlist.endList) {
-        this.onError("The stream ended.");
+        // onError runs first so the owner can save what is left.
+        await this.onError("The stream ended.");
         this.stop();
         return;
       }
@@ -225,7 +253,7 @@ class ScpHlsBuffer {
       this.consecutiveFailures++;
       // Live playlists rotate/expire; give up only after repeated failures.
       if (this.consecutiveFailures >= 6) {
-        this.onError(`Lost the source stream (${e.message}).`);
+        await this.onError(`Lost the source stream (${e.message}).`);
         this.stop();
       }
     }

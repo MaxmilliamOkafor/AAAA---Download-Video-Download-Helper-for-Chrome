@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "StreamClip Pro — Live Stream Replay Clipper",
   "short_name": "StreamClip Pro",
-  "description": "Instant-replay clipping for Twitch, Kick, YouTube and any live stream. Keep a rolling buffer of every stream you watch and save the best moments in one click — at full quality, only when you ask.",
-  "version": "1.8.0",
+  "description": "Hands-free clipping for Twitch, Kick and YouTube live streams: source-quality replay buffer, automatic segment saving, MP4 output and Google Drive delivery.",
+  "version": "2.0.0",
   "minimum_chrome_version": "116",
   "permissions": [
     "tabCapture",
@@ -13,9 +13,13 @@
     "notifications",
     "tabs",
     "webRequest",
-    "scripting"
+    "scripting",
+    "alarms",
+    "identity"
   ],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -29,7 +33,7 @@
       "128": "icons/icon128.png"
     }
   },
-  "options_page": "options/options.html",
+  "options_page": "dashboard/dashboard.html",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -54,6 +58,10 @@
         "default": "Alt+M"
       },
       "description": "Start or stop monitoring the current tab"
+    },
+    "open-dashboard": {
+      "description": "Open the StreamClip dashboard"
     }
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv6fYrFkQNAB8hokIHpNfXXVbmBrTgu8r8oH2Z89CBb6ATP7iKpu3n6uGknojybDC+hz0sHTwIm7PTLfHEzQr0kt62k5kyAx2omZxmIxEp1zB5iSW0K76KX9wgTEmWUkN5C7u1YTmDgF3G6j0sSNGZ84ELZ9yDO9pH+1YPrjcpAybVjahplzCaPk2bc1Bj59JD5JF9Nx3EG+mewgmWgSwQqVlFOpDrSezqTJrBl2JIWkFYgmG/elCMTOl+nLlxUSW1BEdDvetBP9Kb/Op+xvvZH1or/sTDXv98PXgCFNrvRAzrfAlwp/CuInqnNHOAdLIJjgvG0yyUAXOy1zbLE0OcQIDAQAB"
 }

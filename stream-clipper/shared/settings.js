@@ -3,16 +3,19 @@
 
 const SCP_DEFAULT_SETTINGS = {
   // Rolling buffer
-  bufferMinutes: 10,          // how far back you can clip, per stream
-  maxBufferMB: 600,           // hard memory cap per stream (oldest footage dropped first)
+  bufferMinutes: 30,          // how far back you can clip, per stream
+  maxBufferMB: 4000,           // hard memory cap per stream (oldest footage dropped first)
 
   // Clipping
   // Seconds, shown as one-click buttons alongside a permanent "All" button.
-  clipPresets: [60, 300, 1800, 3600, 7200],
+  clipPresets: [30, 60, 300, 900, 1800],
   defaultClipSeconds: 60,          // used by the keyboard shortcut
   customClipEnabled: true,         // show the free-form min/sec field in the popup
   postRollSeconds: 0,              // keep recording N extra seconds after a clip is requested
-  autoStartOnPopupOpen: true,      // opening the popup on a Twitch/Kick/YouTube stream starts monitoring
+  autoStartOnPopupOpen: true,
+  // Start buffering as soon as a live channel page starts playing — no click.
+  // Works through source capture, which needs no user gesture.
+  autoMonitor: true,      // opening the popup on a Twitch/Kick/YouTube stream starts monitoring
 
   // Capture quality
   captureMode: "auto",        // auto (source when available) | source (never re-encode) | tab
@@ -40,8 +43,24 @@ const SCP_DEFAULT_SETTINGS = {
 
   // Notifications — quiet by default beyond a save confirmation
   notifyOnClipSaved: true,
-  notifyOnBufferTrim: false,
-  notifyOnCaptureError: true
+  notifyOnCaptureError: true,
+  notifyOnAutoClip: false,     // automatic clips stay silent unless asked
+
+  // Output container. Source clips arrive as MPEG-TS on Twitch/Kick; "mp4"
+  // rewraps the same samples (no re-encode) so upload tools accept them.
+  outputFormat: "mp4",         // mp4 | original
+
+  // Automation: save consecutive segments of every monitored stream with no
+  // clicks, so a whole broadcast lands in the pipeline hands-free.
+  autoClipEnabled: true,
+  autoClipMinutes: 15,
+
+  // Delivery
+  saveLocally: true,           // keep a copy in Downloads
+  driveEnabled: false,         // upload every clip to Google Drive
+  driveClientId: "",           // the user's own Google OAuth client id
+  driveFolderName: "StreamClips",
+  driveFolderPerStreamer: true
 };
 
 const SCP_RESOLUTIONS = {
@@ -56,6 +75,15 @@ const SCP_RESOLUTIONS = {
 function scpBufferSeconds(settings) {
   const m = Number(settings && settings.bufferMinutes);
   return Number.isFinite(m) && m > 0 ? m * 60 : 0;
+}
+
+// Seconds between automatic clips as it will actually run. A segment cannot
+// be longer than the buffer holds, or footage would be dropped between clips,
+// so a shorter buffer shortens the interval instead of leaving gaps.
+function scpAutoClipSeconds(settings) {
+  const wanted = settings.autoClipMinutes * 60;
+  const buffer = scpBufferSeconds(settings);
+  return Math.round(buffer ? Math.min(wanted, buffer) : wanted);
 }
 
 function scpNormalizeSettings(raw) {
@@ -79,6 +107,18 @@ function scpNormalizeSettings(raw) {
   if (!["auto", "source", "tab"].includes(s.captureMode)) s.captureMode = "auto";
   s.cropToVideo = s.cropToVideo !== false;
   s.excludeAds = s.excludeAds !== false;
+  s.outputFormat = s.outputFormat === "original" ? "original" : "mp4";
+  s.autoClipEnabled = s.autoClipEnabled !== false;
+  s.autoMonitor = s.autoMonitor !== false;
+  // Minutes, but not forced to whole ones: a 90-second segment is 1.5.
+  s.autoClipMinutes = Math.min(720, Math.max(0.5, explicitNum(s.autoClipMinutes, 15)));
+  s.notifyOnAutoClip = s.notifyOnAutoClip === true;
+  s.driveEnabled = s.driveEnabled === true;
+  s.driveClientId = String(s.driveClientId || "").trim();
+  s.driveFolderName = scpSanitizeFileComponent(s.driveFolderName || "StreamClips");
+  s.driveFolderPerStreamer = s.driveFolderPerStreamer !== false;
+  // A clip has to go somewhere: with Drive off, the local copy is mandatory.
+  s.saveLocally = s.saveLocally !== false || !s.driveEnabled;
   s.sourceHeightCap = [0, 720, 1080, 1440, 2160].includes(Number(s.sourceHeightCap))
     ? Number(s.sourceHeightCap)
     : 0;
@@ -226,6 +266,39 @@ function scpFormatBytes(bytes) {
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
+// True only for a page that is itself one live channel (used for automatic
+// monitoring, which must not fire on directories, VODs or hover previews).
+function scpIsLiveChannelPage(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const seg = u.pathname.split("/").filter(Boolean);
+    if (host === "twitch.tv" || host === "m.twitch.tv" || host === "kick.com") {
+      const reserved = ["directory", "categories", "category", "search", "settings", "browse",
+        "wallet", "p", "videos", "video", "clip", "clips", "following", "subscriptions",
+        "inventory", "drops", "turbo", "store", "downloads", "jobs", "login", "signup"];
+      return seg.length === 1 && !reserved.includes(seg[0].toLowerCase());
+    }
+    if (host.endsWith("youtube.com")) {
+      return u.pathname === "/watch" || seg[0] === "live" || (seg.length === 2 && seg[1] === "live");
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Identifies "the same stream page", so navigating to another channel in the
+// same tab is noticed even though the tab itself never closes.
+function scpPageKey(url) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname.replace(/\/+$/, "")}?v=${u.searchParams.get("v") || ""}`;
+  } catch {
+    return String(url);
+  }
+}
+
 function scpSanitizeFileComponent(name) {
   return String(name)
     .replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_")
@@ -263,7 +336,10 @@ if (typeof globalThis !== "undefined") {
     scpSiteFromUrl,
     scpStreamerFromTab,
     scpIsLikelyStreamPage,
+    scpIsLiveChannelPage,
+    scpPageKey,
     scpBufferSeconds,
+    scpAutoClipSeconds,
     scpCodecLabel,
     scpParseDuration,
     scpParseDurationList,

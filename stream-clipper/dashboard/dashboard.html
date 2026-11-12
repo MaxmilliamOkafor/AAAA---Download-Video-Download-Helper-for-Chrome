@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StreamClip Pro</title>
+  <link rel="icon" href="../icons/icon32.png" />
+  <link rel="stylesheet" href="../ui/theme.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="side-brand">
+      <img src="../icons/icon48.png" alt="" width="30" height="30" />
+      <div>
+        <div class="side-name">StreamClip Pro</div>
+        <div class="side-version" id="version"></div>
+      </div>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <a class="nav-item" href="#live" data-view="live"><span aria-hidden="true">●</span> Live<span class="nav-count" id="nav-live" hidden></span></a>
+      <a class="nav-item" href="#library" data-view="library"><span aria-hidden="true">▤</span> Clip library<span class="nav-count" id="nav-library" hidden></span></a>
+      <a class="nav-item" href="#automation" data-view="automation"><span aria-hidden="true">⟳</span> Automation</a>
+      <a class="nav-item" href="#capture" data-view="capture"><span aria-hidden="true">◎</span> Capture</a>
+      <a class="nav-item" href="#output" data-view="output"><span aria-hidden="true">⇩</span> Output</a>
+    </nav>
+    <div class="side-foot">
+      <div class="pipeline-mini" id="pipeline-mini"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="error" class="alert" role="alert" hidden></div>
+
+    <!-- LIVE -->
+    <section class="view" id="view-live" hidden>
+      <header class="view-head">
+        <div>
+          <h1>Live</h1>
+          <p class="lede" id="live-lede">Streams being buffered right now.</p>
+        </div>
+        <button id="clip-all" class="btn btn-primary" type="button" hidden>⚡ Clip all streams</button>
+      </header>
+      <div id="sessions" class="session-grid"></div>
+      <div id="live-empty" class="panel empty" hidden>
+        <div class="empty-icon" aria-hidden="true">🎬</div>
+        <h3>No streams monitored</h3>
+        <p><strong>Just open a live stream</strong> on Twitch, Kick or YouTube. Monitoring starts by itself a few seconds after playback begins, and each stream appears here.</p>
+        <p class="hint">On other sites, or to record the rendered tab instead, click the StreamClip icon on the stream's tab (or press <kbd>Alt</kbd>+<kbd>M</kbd>).</p>
+      </div>
+    </section>
+
+    <!-- LIBRARY -->
+    <section class="view" id="view-library" hidden>
+      <header class="view-head">
+        <div>
+          <h1>Clip library</h1>
+          <p class="lede">Every clip and where it was delivered.</p>
+        </div>
+        <div class="head-actions">
+          <input id="library-search" class="input search" type="search" placeholder="Filter by streamer…" aria-label="Filter clips by streamer" />
+          <button id="clear-history" class="btn btn-ghost" type="button">Clear list</button>
+        </div>
+      </header>
+      <div class="tiles" id="library-tiles"></div>
+      <div class="panel table-wrap">
+        <table class="table" id="library-table">
+          <thead>
+            <tr><th>Clip</th><th>Length</th><th>Size</th><th>Saved</th><th>Computer</th><th>Google Drive</th><th></th></tr>
+          </thead>
+          <tbody id="library-body"></tbody>
+        </table>
+        <div id="library-empty" class="empty" hidden>
+          <div class="empty-icon" aria-hidden="true">📁</div>
+          <h3>No clips yet</h3>
+          <p>Clips you save — and automatic ones — are listed here with their delivery status.</p>
+        </div>
+      </div>
+      <p class="hint list-note">The list keeps the latest 200 clips. Clearing it does not delete any files.</p>
+    </section>
+
+    <!-- AUTOMATION -->
+    <section class="view" id="view-automation" hidden>
+      <header class="view-head">
+        <div>
+          <h1>Automation</h1>
+          <p class="lede">Run the whole pipeline hands-free: capture, clip, convert, deliver.</p>
+        </div>
+      </header>
+
+      <div class="pipeline" id="pipeline" aria-label="Pipeline status"></div>
+
+      <div class="panel">
+        <div class="row-head">
+          <div>
+            <h2>Auto-clip</h2>
+            <p class="desc">Saves every monitored stream as back-to-back segments with no clicks. Segments tile exactly — no gaps, no overlap — and when a stream ends or you stop monitoring, the unsaved remainder is saved too. Manual clip buttons keep working alongside it.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="autoClipEnabled" data-kind="bool" aria-label="Enable auto-clip" /><span class="track"></span></label>
+        </div>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Segment length <em>(any length — e.g. 90s, 15m, 1h 30m)</em></span>
+            <input class="input" type="text" data-setting="autoClipMinutes" data-kind="minutes" placeholder="15m" />
+          </label>
+          <label class="field check">
+            <input type="checkbox" data-setting="notifyOnAutoClip" data-kind="bool" />
+            <span>Notify me for each automatic clip <em>(off keeps it silent)</em></span>
+          </label>
+        </div>
+        <p class="callout" id="auto-estimate"></p>
+      </div>
+
+      <div class="panel">
+        <div class="row-head">
+          <div>
+            <h2>Google Drive delivery</h2>
+            <p class="desc">Uploads every clip to a folder in your own Google Drive, in the background, in resumable chunks. StreamClip can only see files it created there (the <code>drive.file</code> permission) — nothing else in your Drive.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="driveEnabled" data-kind="bool" aria-label="Upload clips to Google Drive" /><span class="track"></span></label>
+        </div>
+
+        <div class="drive-state">
+          <span id="drive-status" class="status"></span>
+          <span id="drive-account" class="hint"></span>
+          <span class="spacer"></span>
+          <button id="drive-connect" class="btn btn-primary" type="button">Connect Google Drive</button>
+          <button id="drive-disconnect" class="btn btn-danger" type="button" hidden>Disconnect</button>
+        </div>
+
+        <p class="callout"><strong>No-setup alternative:</strong> install Google Drive for desktop and add your <code>Downloads/StreamClips</code> folder to it. Every clip then syncs to Drive with nothing to configure here — leave this switch off.</p>
+
+        <details class="setup" id="drive-setup">
+          <summary>One-time setup (free, about 3 minutes)</summary>
+          <ol>
+            <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project (any name).</li>
+            <li>In <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">APIs &amp; Services → Library</a>, enable the <strong>Google Drive API</strong>.</li>
+            <li>In <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a>, complete the consent screen as <em>External</em> and add your own Google address under <strong>Test users</strong>.</li>
+            <li>Create an OAuth client of type <strong>Web application</strong> and add this exact <strong>Authorized redirect URI</strong>:
+              <div class="copy-row">
+                <input id="redirect-uri" class="input mono" readonly aria-label="Redirect URI" />
+                <button id="copy-redirect" class="btn btn-ghost" type="button">Copy</button>
+              </div>
+            </li>
+            <li>Paste the client ID it gives you below, then press <strong>Connect Google Drive</strong>.</li>
+          </ol>
+        </details>
+
+        <div class="fields">
+          <label class="field wide">
+            <span class="label">OAuth client ID</span>
+            <input class="input mono" type="text" data-setting="driveClientId" data-kind="text" placeholder="1234567890-abc…apps.googleusercontent.com" spellcheck="false" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="label">Drive folder</span>
+            <input class="input" type="text" data-setting="driveFolderName" data-kind="text" placeholder="StreamClips" />
+          </label>
+          <label class="field check">
+            <input type="checkbox" data-setting="driveFolderPerStreamer" data-kind="bool" />
+            <span>One subfolder per streamer</span>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="saveLocally" data-kind="bool" />
+            <span>Also keep a copy on this computer <em>(in Downloads — needed for tools that upload from your computer)</em></span>
+          </label>
+        </div>
+        <p class="callout">If an upload fails and the clip was not kept on this computer, it is saved to Downloads instead — a clip is never dropped.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Sending clips to an AI clipping tool</h2>
+        <p class="desc">Tools such as Taja take a long video and cut the shorts for you. Taja's site states it imports from <strong>YouTube or a file on your computer</strong>, in <strong>mp4, mov, m4v, avi, mpeg, webm or mkv</strong>, up to 5–10&nbsp;GB and 2–5&nbsp;hours depending on plan. StreamClip's MP4 output fits that directly:</p>
+        <ol class="steps">
+          <li>Keep <strong>Output → Format</strong> on MP4 and the local copy on. Auto-clips then land in <code>Downloads/StreamClips/…</code>, one folder per site.</li>
+          <li>Upload those files in the tool's dashboard. Segments of 15–30 minutes stay well inside the size limits.</li>
+          <li>Google Drive is your archive and gives you the same files from any device.</li>
+        </ol>
+        <a class="btn btn-ghost" href="https://app.taja.ai/dashboard" target="_blank" rel="noopener">Open Taja dashboard ↗</a>
+      </div>
+    </section>
+
+    <!-- CAPTURE -->
+    <section class="view" id="view-capture" hidden>
+      <header class="view-head">
+        <div>
+          <h1>Capture</h1>
+          <p class="lede">How streams are recorded. Changes apply to running captures where possible.</p>
+        </div>
+      </header>
+
+      <div class="panel">
+        <h2>Capture mode</h2>
+        <p class="desc"><strong>Source</strong> buffers the broadcaster's own video segments — the exact bytes the CDN sends, never re-encoded — and always grabs the best rendition offered, whatever quality you are watching at. <strong>Tab</strong> records what the tab renders: it works on every site but re-encodes.</p>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Mode</span>
+            <select class="input" data-setting="captureMode" data-kind="text">
+              <option value="auto">Auto — source when available, otherwise tab</option>
+              <option value="source">Source only — never re-encode</option>
+              <option value="tab">Tab only — always record rendered video</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Source quality</span>
+            <select class="input" data-setting="sourceHeightCap" data-kind="number">
+              <option value="0">Best available — no limit</option>
+              <option value="2160">Cap at 4K</option>
+              <option value="1440">Cap at 1440p</option>
+              <option value="1080">Cap at 1080p</option>
+              <option value="720">Cap at 720p — lightest on bandwidth</option>
+            </select>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="excludeAds" data-kind="bool" />
+            <span>Keep advertising out of clips <em>(ad segments are skipped in source mode and cut in tab mode)</em></span>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="autoMonitor" data-kind="bool" />
+            <span>Start monitoring by itself when a live channel starts playing <em>(no click — Twitch, Kick and YouTube live, source mode)</em></span>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="autoStartOnPopupOpen" data-kind="bool" />
+            <span>Start monitoring when the popup opens on a Twitch, Kick or YouTube stream page</span>
+          </label>
+        </div>
+        <p class="callout">Source mode downloads the stream a second time alongside the player, so it roughly doubles bandwidth for that stream. If a stream stutters, pick a lower rendition on its card or use tab mode.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Buffer</h2>
+        <p class="desc">How far back a manual clip can reach. Auto-clip only needs the buffer to be at least one segment long.</p>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Buffer length</span>
+            <select class="input" data-setting="bufferMinutes" data-kind="number" id="bufferMinutes">
+              <option value="5">5 minutes</option>
+              <option value="10">10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="120">2 hours</option>
+              <option value="240">4 hours</option>
+              <option value="480">8 hours</option>
+              <option value="720">12 hours</option>
+              <option value="0">Unlimited — keep everything</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Memory cap per stream</span>
+            <select class="input" data-setting="maxBufferMB" data-kind="number" id="maxBufferMB">
+              <option value="600">600 MB</option>
+              <option value="1500">1.5 GB</option>
+              <option value="2500">2.5 GB</option>
+              <option value="4000">4 GB</option>
+              <option value="8000">8 GB</option>
+              <option value="16000">16 GB</option>
+              <option value="32000">32 GB</option>
+              <option value="0">Unlimited — no cap</option>
+            </select>
+          </label>
+        </div>
+        <div class="quick">
+          <span class="label">Quick setup</span>
+          <button class="btn btn-ghost" type="button" data-quick="light">Light · 10 min</button>
+          <button class="btn btn-ghost" type="button" data-quick="long">Long · 1 hour</button>
+          <button class="btn btn-ghost" type="button" data-quick="marathon">Marathon · 2 hours</button>
+          <button class="btn btn-ghost" type="button" data-quick="unlimited">Unlimited</button>
+        </div>
+        <p class="callout" id="buffer-estimate"></p>
+      </div>
+
+      <div class="panel">
+        <h2>Tab-mode quality</h2>
+        <p class="desc">Only used when recording rendered video. Source mode ignores these — it never re-encodes.</p>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Resolution cap</span>
+            <select class="input" data-setting="resolutionCap" data-kind="number">
+              <option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Frame rate</span>
+            <select class="input" data-setting="frameRate" data-kind="number">
+              <option value="30">30 fps</option><option value="60">60 fps</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Video bitrate</span>
+            <select class="input" data-setting="videoBitrateMbps" data-kind="number" id="videoBitrateMbps">
+              <option value="6">6 Mbps</option><option value="8">8 Mbps</option><option value="12">12 Mbps</option><option value="20">20 Mbps</option><option value="30">30 Mbps</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Audio bitrate</span>
+            <select class="input" data-setting="audioBitrateKbps" data-kind="number">
+              <option value="128">128 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Codec</span>
+            <select class="input" data-setting="codecPreference" data-kind="text">
+              <option value="auto">Auto</option><option value="h264">H.264</option><option value="vp9">VP9</option><option value="vp8">VP8</option>
+            </select>
+          </label>
+          <label class="field check">
+            <input type="checkbox" data-setting="cropToVideo" data-kind="bool" />
+            <span>Record the player only <em>(no chat or page)</em></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- OUTPUT -->
+    <section class="view" id="view-output" hidden>
+      <header class="view-head">
+        <div>
+          <h1>Output</h1>
+          <p class="lede">What a saved clip looks like and where it goes on this computer.</p>
+        </div>
+      </header>
+
+      <div class="panel">
+        <h2>File format</h2>
+        <p class="desc">Twitch and Kick deliver MPEG-TS, which most upload tools reject. MP4 rewraps the very same video and audio samples in an MP4 container — no re-encoding, so quality is untouched.</p>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Format for source clips</span>
+            <select class="input" data-setting="outputFormat" data-kind="text">
+              <option value="mp4">MP4 — works everywhere (recommended)</option>
+              <option value="original">Original container (.ts)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>File names</h2>
+        <div class="fields">
+          <label class="field wide">
+            <span class="label">Name template</span>
+            <input class="input mono" type="text" data-setting="fileNameTemplate" data-kind="text" id="fileNameTemplate" spellcheck="false" />
+            <span class="hint">Tokens: <code>{site}</code> <code>{streamer}</code> <code>{title}</code> <code>{date}</code> <code>{time}</code> <code>{length}</code> — use <code>/</code> for subfolders inside Downloads.</span>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="askWhereToSave" data-kind="bool" />
+            <span>Ask where to save each manual clip</span>
+          </label>
+        </div>
+        <p class="callout" id="filename-preview"></p>
+      </div>
+
+      <div class="panel">
+        <h2>Manual clipping</h2>
+        <div class="fields">
+          <label class="field wide">
+            <span class="label">Quick-clip buttons <em>(up to 6 — e.g. 30s, 1m, 5m, 30m, 1h)</em></span>
+            <input class="input" type="text" data-setting="clipPresets" data-kind="durations" placeholder="1m, 5m, 30m, 1h, 2h" />
+          </label>
+          <label class="field">
+            <span class="label">Shortcut clip length <em>(Alt+C)</em></span>
+            <input class="input" type="text" data-setting="defaultClipSeconds" data-kind="duration" placeholder="1m" />
+          </label>
+          <label class="field">
+            <span class="label">Post-roll</span>
+            <select class="input" data-setting="postRollSeconds" data-kind="number">
+              <option value="0">Off — save instantly</option><option value="5">+5 seconds</option><option value="10">+10 seconds</option><option value="15">+15 seconds</option><option value="30">+30 seconds</option><option value="60">+60 seconds</option>
+            </select>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="customClipEnabled" data-kind="bool" />
+            <span>Show the custom min:sec field on every stream card</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Notifications</h2>
+        <div class="fields">
+          <label class="field check wide">
+            <input type="checkbox" data-setting="notifyOnClipSaved" data-kind="bool" />
+            <span>When a manual clip is saved</span>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="notifyOnCaptureError" data-kind="bool" />
+            <span>When a capture stops unexpectedly or an upload fails</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Keyboard shortcuts</h2>
+        <ul class="shortcuts">
+          <li><kbd>Alt</kbd>+<kbd>C</kbd><span>Clip the current tab (or all streams when it isn't monitored)</span></li>
+          <li><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd><span>Clip every monitored stream at once</span></li>
+          <li><kbd>Alt</kbd>+<kbd>M</kbd><span>Start or stop monitoring the current tab</span></li>
+        </ul>
+        <p class="hint">Change them at <code>chrome://extensions/shortcuts</code>.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="../shared/settings.js"></script>
+<script src="../ui/common.js"></script>
+<script src="../ui/stream-cards.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
