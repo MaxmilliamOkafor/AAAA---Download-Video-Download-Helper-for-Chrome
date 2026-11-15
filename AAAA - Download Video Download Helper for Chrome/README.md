@@ -15,7 +15,7 @@ their own.
 ## Install
 
 1. Open `chrome://extensions` and enable **Developer mode**.
-2. **Load unpacked** → select this `stream-clipper` folder.
+2. **Load unpacked** → select this folder (the one with `manifest.json` in it).
 3. The dashboard opens. Nothing needs configuring.
 
 ## What happens with no setup
