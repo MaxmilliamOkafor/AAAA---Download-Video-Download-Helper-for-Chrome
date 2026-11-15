@@ -1,0 +1,71 @@
+/* Popup layout. Tokens and components come from ui/theme.css. */
+
+body { width: 400px; max-height: 600px; overflow-y: auto; }
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand img { border-radius: 5px; flex: none; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.brand-name { font-weight: 650; font-size: 13.5px; letter-spacing: -0.01em; }
+.brand-sub { font-size: 10.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+
+.auto-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.auto-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
+.auto-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.auto-title { font-weight: 650; font-size: 12.5px; }
+.auto-desc { font-size: 10.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.current-tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.current-tab-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12.5px; }
+
+.popup-alert { margin: 10px 14px 0; }
+
+.sessions { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.sessions:empty { display: none; }
+
+.recent { padding: 2px 14px 14px; }
+.recent-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.recent-head .clip-label { margin: 0; }
+.link-btn { background: none; border: none; color: var(--brand-hover); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; padding: 2px 4px; }
+.link-btn:hover { text-decoration: underline; }
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  margin-bottom: 6px;
+}
+.recent-item .who { flex: 1; min-width: 0; font-weight: 600; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-item .meta { flex: none; color: var(--text-3); font-size: 10.5px; font-variant-numeric: tabular-nums; }

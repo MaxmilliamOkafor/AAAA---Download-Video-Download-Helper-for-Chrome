@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>StreamClip Pro</title>
+  <link rel="stylesheet" href="../ui/theme.css" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <img src="../icons/icon32.png" alt="" width="22" height="22" />
+      <span class="brand-text">
+        <span class="brand-name">StreamClip Pro</span>
+        <span class="brand-sub" id="brand-sub">Replay buffer idle</span>
+      </span>
+    </div>
+    <div class="header-actions">
+      <button id="clip-all" class="btn btn-ghost" type="button" hidden>⚡ Clip all</button>
+      <button id="open-dashboard" class="btn btn-ghost" type="button" title="Open the full dashboard">Dashboard</button>
+    </div>
+  </header>
+
+  <section class="auto-bar" aria-label="Automation">
+    <label class="auto-toggle">
+      <span class="switch">
+        <input id="auto-switch" type="checkbox" aria-describedby="auto-desc" />
+        <span class="track"></span>
+      </span>
+      <span class="auto-text">
+        <span class="auto-title">Auto-clip</span>
+        <span class="auto-desc" id="auto-desc">Off — clips are saved only when you ask</span>
+      </span>
+    </label>
+    <span id="drive-pill" class="status" hidden></span>
+  </section>
+
+  <section id="current-tab" class="current-tab" hidden>
+    <div class="current-tab-info">
+      <span id="current-site" class="site-chip"></span>
+      <span id="current-title" class="tab-title"></span>
+    </div>
+    <button id="start-current" class="btn btn-primary" type="button">Start monitoring</button>
+  </section>
+
+  <div id="error" class="alert popup-alert" role="alert" hidden></div>
+
+  <main id="sessions" class="sessions" aria-label="Monitored streams"></main>
+
+  <div id="empty" class="empty" hidden>
+    <div class="empty-icon" aria-hidden="true">🎬</div>
+    <h3>No streams monitored</h3>
+    <p>Open a live stream on Twitch, Kick or YouTube — monitoring starts by itself and clips are saved automatically. On other sites, press <strong>Start monitoring</strong>.</p>
+    <p class="hint"><kbd>Alt</kbd>+<kbd>C</kbd> clips instantly · <kbd>Alt</kbd>+<kbd>M</kbd> starts or stops monitoring</p>
+  </div>
+
+  <section id="recent" class="recent" hidden>
+    <div class="recent-head">
+      <span class="clip-label">Recent clips</span>
+      <button id="open-library" class="link-btn" type="button">View all</button>
+    </div>
+    <div id="recent-list"></div>
+  </section>
+
+  <script src="../shared/settings.js"></script>
+  <script src="../ui/common.js"></script>
+  <script src="../ui/stream-cards.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

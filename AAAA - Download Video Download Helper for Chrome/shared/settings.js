@@ -1,0 +1,405 @@
+// Shared settings model. Loaded by the service worker (importScripts),
+// the offscreen document, the popup and the options page (script tags).
+
+const SCP_DEFAULT_SETTINGS = {
+  // Rolling buffer
+  bufferMinutes: 30,          // how far back you can clip, per stream
+  maxBufferMB: 4000,           // hard memory cap per stream (oldest footage dropped first)
+
+  // Clipping
+  // Seconds, shown as one-click buttons alongside a permanent "All" button.
+  clipPresets: [30, 60, 300, 900, 1800],
+  defaultClipSeconds: 60,          // used by the keyboard shortcut
+  customClipEnabled: true,         // show the free-form min/sec field in the popup
+  postRollSeconds: 0,              // keep recording N extra seconds after a clip is requested
+  autoStartOnPopupOpen: true,
+  // Start buffering as soon as a live channel page starts playing — no click.
+  // Works through source capture, which needs no user gesture.
+  autoMonitor: true,      // opening the popup on a Twitch/Kick/YouTube stream starts monitoring
+
+  // Capture quality
+  captureMode: "auto",        // auto (source when available) | source (never re-encode) | tab
+  // 0 = always buffer the stream's best rendition, whatever it is. Source mode
+  // fetches the stream a second time alongside the player, so an uncapped 4K
+  // rendition costs real bandwidth — capping is available per taste, but the
+  // default is maximum quality.
+  sourceHeightCap: 0,
+  // Tab mode: record the player only, dropping chat, sidebar and page chrome.
+  // This also raises effective quality — the whole bitrate covers video
+  // instead of being spent on static page furniture.
+  cropToVideo: true,
+  // Ads are detected from playlist markers (source) or the player's own ad
+  // indicator (tab), and excluded from the buffer or the assembled clip.
+  excludeAds: true,
+  resolutionCap: 1080,        // 720 | 1080 | 1440 | 2160 (tab mode: never exceeds what the player renders)
+  frameRate: 60,              // 30 | 60
+  videoBitrateMbps: 8,        // 4..40 — higher costs CPU and memory while encoding live
+  audioBitrateKbps: 192,      // 96..320
+  codecPreference: "auto",    // auto | h264 | vp9 | vp8
+
+  // Output
+  fileNameTemplate: "StreamClips/{site}/{streamer} - {date} {time} ({length}s)",
+  askWhereToSave: false,
+
+  // Notifications — quiet by default beyond a save confirmation
+  notifyOnClipSaved: true,
+  notifyOnCaptureError: true,
+  notifyOnAutoClip: false,     // automatic clips stay silent unless asked
+
+  // Output container. Source clips arrive as MPEG-TS on Twitch/Kick; "mp4"
+  // rewraps the same samples (no re-encode) so upload tools accept them.
+  outputFormat: "mp4",         // mp4 | original
+
+  // Automation: save consecutive segments of every monitored stream with no
+  // clicks, so a whole broadcast lands in the pipeline hands-free.
+  autoClipEnabled: true,
+  autoClipMinutes: 15,
+
+  // Delivery
+  saveLocally: true,           // keep a copy in Downloads
+  driveEnabled: false,         // upload every clip to Google Drive
+  driveClientId: "",           // the user's own Google OAuth client id
+  driveFolderName: "StreamClips",
+  driveFolderPerStreamer: true,
+
+  // Highlights: chat bursts become their own short clips, automatically.
+  highlightEnabled: true,
+  highlightSensitivity: "medium", // low | medium | high
+  highlightPreRoll: 25,           // seconds before the burst (chat reacts late)
+  highlightPostRoll: 8,           // seconds after it
+  highlightMaxPerHour: 12,        // per stream; 0 = no cap
+
+  // Shorts engine: hand clips to a self-hosted OpenShorts or SupoClip, which
+  // reframes them to 9:16 with captions and hooks. The API key, when one is
+  // needed, is kept in chrome.storage.local, never in synced settings.
+  shortsEngine: "off",            // off | openshorts | supoclip
+  shortsEngineUrl: "http://localhost:8000",
+  shortsEngineScope: "highlights", // highlights | all
+  shortsClipLength: "auto",       // auto | short | medium | long
+  shortsRightsConfirmed: false    // the user's own attestation, required to send
+};
+
+const SCP_SHORTS_ENGINES = {
+  openshorts: { name: "OpenShorts", app: "http://localhost:5175", keyLabel: "Gemini API key (optional if the server has one)" },
+  supoclip: { name: "SupoClip", app: "http://localhost:3107", keyLabel: "SupoClip API key (sk_…)" }
+};
+
+const SCP_RESOLUTIONS = {
+  720:  { width: 1280, height: 720 },
+  1080: { width: 1920, height: 1080 },
+  1440: { width: 2560, height: 1440 },
+  2160: { width: 3840, height: 2160 }
+};
+
+// Buffer length in seconds, or 0 when unlimited. Callers must treat 0 as
+// "no limit" rather than "no buffer".
+function scpBufferSeconds(settings) {
+  const m = Number(settings && settings.bufferMinutes);
+  return Number.isFinite(m) && m > 0 ? m * 60 : 0;
+}
+
+// Seconds between automatic clips as it will actually run. A segment cannot
+// be longer than the buffer holds, or footage would be dropped between clips,
+// so a shorter buffer shortens the interval instead of leaving gaps.
+function scpAutoClipSeconds(settings) {
+  const wanted = settings.autoClipMinutes * 60;
+  const buffer = scpBufferSeconds(settings);
+  return Math.round(buffer ? Math.min(wanted, buffer) : wanted);
+}
+
+function scpNormalizeSettings(raw) {
+  const s = { ...SCP_DEFAULT_SETTINGS, ...(raw || {}) };
+  // 0 means unlimited for both: keep everything since monitoring started,
+  // bounded only by what the browser will store. Anything unparseable falls
+  // back to the default rather than silently becoming unlimited.
+  // Only an explicit numeric 0 means unlimited. null/undefined/"" must fall
+  // back to the default: Number(null) is 0, so a missing value would otherwise
+  // silently turn unlimited buffering on and fill the user's disk.
+  s.bufferMinutes = clampNum(explicitNum(s.bufferMinutes, SCP_DEFAULT_SETTINGS.bufferMinutes), 0, 1440);
+  s.maxBufferMB = clampNum(explicitNum(s.maxBufferMB, SCP_DEFAULT_SETTINGS.maxBufferMB), 0, 200000);
+  s.defaultClipSeconds = clampNum(s.defaultClipSeconds, 5, scpBufferSeconds(s) || 14400);
+  s.clipPresets = (Array.isArray(s.clipPresets) ? s.clipPresets : SCP_DEFAULT_SETTINGS.clipPresets)
+    .map(v => clampNum(v, 5, 14400))
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .slice(0, 6);
+  if (s.clipPresets.length === 0) s.clipPresets = [...SCP_DEFAULT_SETTINGS.clipPresets];
+  s.postRollSeconds = clampNum(s.postRollSeconds, 0, 60);
+  s.autoStartOnPopupOpen = s.autoStartOnPopupOpen !== false;
+  if (!["auto", "source", "tab"].includes(s.captureMode)) s.captureMode = "auto";
+  s.cropToVideo = s.cropToVideo !== false;
+  s.excludeAds = s.excludeAds !== false;
+  s.outputFormat = s.outputFormat === "original" ? "original" : "mp4";
+  s.autoClipEnabled = s.autoClipEnabled !== false;
+  s.autoMonitor = s.autoMonitor !== false;
+  // Minutes, but not forced to whole ones: a 90-second segment is 1.5.
+  s.autoClipMinutes = Math.min(720, Math.max(0.5, explicitNum(s.autoClipMinutes, 15)));
+  s.notifyOnAutoClip = s.notifyOnAutoClip === true;
+  s.driveEnabled = s.driveEnabled === true;
+  s.driveClientId = String(s.driveClientId || "").trim();
+  s.driveFolderName = scpSanitizeFileComponent(s.driveFolderName || "StreamClips");
+  s.driveFolderPerStreamer = s.driveFolderPerStreamer !== false;
+  s.highlightEnabled = s.highlightEnabled !== false;
+  if (!["low", "medium", "high"].includes(s.highlightSensitivity)) s.highlightSensitivity = "medium";
+  s.highlightPreRoll = clampNum(explicitNum(s.highlightPreRoll, 25), 0, 120);
+  s.highlightPostRoll = clampNum(explicitNum(s.highlightPostRoll, 8), 0, 60);
+  s.highlightMaxPerHour = clampNum(explicitNum(s.highlightMaxPerHour, 12), 0, 120);
+  if (!["off", "openshorts", "supoclip"].includes(s.shortsEngine)) s.shortsEngine = "off";
+  s.shortsEngineUrl = scpNormalizeBaseUrl(s.shortsEngineUrl) || SCP_DEFAULT_SETTINGS.shortsEngineUrl;
+  if (!["highlights", "all"].includes(s.shortsEngineScope)) s.shortsEngineScope = "highlights";
+  if (!["auto", "short", "medium", "long"].includes(s.shortsClipLength)) s.shortsClipLength = "auto";
+  s.shortsRightsConfirmed = s.shortsRightsConfirmed === true;
+
+  // A clip has to go somewhere: with Drive off, the local copy is mandatory.
+  s.saveLocally = s.saveLocally !== false || !s.driveEnabled;
+  s.sourceHeightCap = [0, 720, 1080, 1440, 2160].includes(Number(s.sourceHeightCap))
+    ? Number(s.sourceHeightCap)
+    : 0;
+  s.resolutionCap = SCP_RESOLUTIONS[s.resolutionCap] ? s.resolutionCap : 1080;
+  s.frameRate = s.frameRate === 30 ? 30 : 60;
+  s.videoBitrateMbps = clampNum(s.videoBitrateMbps, 4, 40);
+  s.audioBitrateKbps = clampNum(s.audioBitrateKbps, 96, 320);
+  if (!["auto", "h264", "vp9", "vp8"].includes(s.codecPreference)) s.codecPreference = "auto";
+  if (typeof s.fileNameTemplate !== "string" || !s.fileNameTemplate.trim()) {
+    s.fileNameTemplate = SCP_DEFAULT_SETTINGS.fileNameTemplate;
+  }
+  return s;
+
+  function explicitNum(v, fallback) {
+    if (v === null || v === undefined || v === "") return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function clampNum(v, lo, hi) {
+    v = Number(v);
+    if (!Number.isFinite(v)) return lo;
+    return Math.min(hi, Math.max(lo, Math.round(v)));
+  }
+}
+
+async function scpLoadSettings() {
+  const stored = await chrome.storage.sync.get("settings");
+  return scpNormalizeSettings(stored.settings);
+}
+
+async function scpSaveSettings(settings) {
+  await chrome.storage.sync.set({ settings: scpNormalizeSettings(settings) });
+}
+
+// Recognized streaming sites — anything else still works, labeled by hostname.
+function scpSiteFromUrl(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    if (host.endsWith("twitch.tv")) return "Twitch";
+    if (host.endsWith("kick.com")) return "Kick";
+    if (host.endsWith("youtube.com") || host === "youtu.be") return "YouTube";
+    return host;
+  } catch {
+    return "Stream";
+  }
+}
+
+// Best-effort channel/streamer name from tab URL + title.
+function scpStreamerFromTab(url, title) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const seg = u.pathname.split("/").filter(Boolean);
+    if ((host.endsWith("twitch.tv") || host.endsWith("kick.com")) && seg.length >= 1) {
+      const reserved = ["videos", "video", "directory", "categories", "category", "search", "settings", "browse"];
+      if (!reserved.includes(seg[0].toLowerCase())) return seg[0];
+    }
+    if (host.endsWith("youtube.com")) {
+      const at = seg.find(p => p.startsWith("@"));
+      if (at) return at;
+      // "Title - Channel - YouTube" or "Title - YouTube"
+      const m = (title || "").replace(/ - YouTube$/, "").split(" - ");
+      if (m.length >= 2) return m[m.length - 1];
+    }
+  } catch { /* fall through */ }
+  const cleaned = (title || "").replace(/ - (Twitch|Kick|YouTube)$/i, "").trim();
+  return cleaned || "stream";
+}
+
+// True for URLs that look like a watchable stream page (used for auto-start).
+function scpIsLikelyStreamPage(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const seg = u.pathname.split("/").filter(Boolean);
+    if (host.endsWith("twitch.tv") || host.endsWith("kick.com")) {
+      const reserved = ["directory", "categories", "category", "search", "settings", "browse", "wallet", "p"];
+      return seg.length >= 1 && !reserved.includes(seg[0].toLowerCase());
+    }
+    if (host.endsWith("youtube.com")) {
+      return u.pathname === "/watch" || seg[0] === "live" || seg.includes("live");
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Human-readable codec name from a MIME type or HLS CODECS attribute.
+function scpCodecLabel(raw) {
+  const s = String(raw || "").toLowerCase();
+  if (/avc1|h264|h\.264/.test(s)) return "H.264";
+  if (/hvc1|hev1|h265|hevc/.test(s)) return "H.265";
+  if (/av01/.test(s)) return "AV1";
+  if (/vp9|vp09/.test(s)) return "VP9";
+  if (/vp8/.test(s)) return "VP8";
+  return "";
+}
+
+// Accepts "30", "30s", "2m", "1h", "1m30s" and returns seconds.
+function scpParseDuration(text) {
+  const s = String(text).trim().toLowerCase();
+  if (!s) return NaN;
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s)); // bare number = seconds
+  const re = /(\d+(?:\.\d+)?)\s*(h|m|s)/g;
+  let total = 0;
+  let matched = false;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    matched = true;
+    const n = parseFloat(m[1]);
+    total += m[2] === "h" ? n * 3600 : m[2] === "m" ? n * 60 : n;
+  }
+  return matched ? Math.round(total) : NaN;
+}
+
+function scpParseDurationList(text) {
+  return String(text)
+    .split(",")
+    .map(scpParseDuration)
+    .filter(v => Number.isFinite(v) && v > 0);
+}
+
+// Compact label for a duration: 30s, 2m, 1h 30m.
+function scpFormatDuration(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return m ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return s ? `${m}m ${s}s` : `${m}m`;
+  return `${s}s`;
+}
+
+// Bytes needed to buffer `seconds` at `mbps`. Used to show the memory cost of
+// long buffers before the user commits to them.
+function scpEstimateBytes(seconds, mbps) {
+  return (seconds * mbps * 1_000_000) / 8;
+}
+
+function scpFormatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
+// "localhost:8000/" -> "http://localhost:8000". Empty for anything that is
+// not a plain http(s) origin plus optional path.
+function scpNormalizeBaseUrl(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  // An explicit scheme must be http(s); "localhost:8000" has none (no "//").
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(text);
+  if (scheme && !/^https?$/i.test(scheme[1])) return "";
+  if (/^(javascript|data|file|chrome|chrome-extension):/i.test(text)) return "";
+  if (!scheme) text = "http://" + text;
+  try {
+    const u = new URL(text);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    return (u.origin + u.pathname).replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+// True only for a page that is itself one live channel (used for automatic
+// monitoring, which must not fire on directories, VODs or hover previews).
+function scpIsLiveChannelPage(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const seg = u.pathname.split("/").filter(Boolean);
+    if (host === "twitch.tv" || host === "m.twitch.tv" || host === "kick.com") {
+      const reserved = ["directory", "categories", "category", "search", "settings", "browse",
+        "wallet", "p", "videos", "video", "clip", "clips", "following", "subscriptions",
+        "inventory", "drops", "turbo", "store", "downloads", "jobs", "login", "signup"];
+      return seg.length === 1 && !reserved.includes(seg[0].toLowerCase());
+    }
+    if (host.endsWith("youtube.com")) {
+      return u.pathname === "/watch" || seg[0] === "live" || (seg.length === 2 && seg[1] === "live");
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Identifies "the same stream page", so navigating to another channel in the
+// same tab is noticed even though the tab itself never closes.
+function scpPageKey(url) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname.replace(/\/+$/, "")}?v=${u.searchParams.get("v") || ""}`;
+  } catch {
+    return String(url);
+  }
+}
+
+function scpSanitizeFileComponent(name) {
+  return String(name)
+    .replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "clip";
+}
+
+function scpBuildFileName(template, meta) {
+  const now = new Date(meta.timestamp || Date.now());
+  const pad = n => String(n).padStart(2, "0");
+  const map = {
+    "{site}": scpSanitizeFileComponent(meta.site || "Stream"),
+    "{streamer}": scpSanitizeFileComponent(meta.streamer || "stream"),
+    "{title}": scpSanitizeFileComponent(meta.title || ""),
+    "{date}": `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    "{time}": `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`,
+    "{length}": String(Math.round(meta.lengthSeconds || 0))
+  };
+  let out = template;
+  for (const [k, v] of Object.entries(map)) out = out.split(k).join(v);
+  // Sanitize each path segment but keep folder structure.
+  out = out.split("/").map(scpSanitizeFileComponent).filter(Boolean).join("/");
+  return `${out}.${meta.extension || "webm"}`;
+}
+
+// Make available in both classic-script and worker contexts.
+if (typeof globalThis !== "undefined") {
+  Object.assign(globalThis, {
+    SCP_DEFAULT_SETTINGS,
+    SCP_RESOLUTIONS,
+    SCP_SHORTS_ENGINES,
+    scpNormalizeBaseUrl,
+    scpNormalizeSettings,
+    scpLoadSettings,
+    scpSaveSettings,
+    scpSiteFromUrl,
+    scpStreamerFromTab,
+    scpIsLikelyStreamPage,
+    scpIsLiveChannelPage,
+    scpPageKey,
+    scpBufferSeconds,
+    scpAutoClipSeconds,
+    scpCodecLabel,
+    scpParseDuration,
+    scpParseDurationList,
+    scpFormatDuration,
+    scpEstimateBytes,
+    scpFormatBytes,
+    scpSanitizeFileComponent,
+    scpBuildFileName
+  });
+}
