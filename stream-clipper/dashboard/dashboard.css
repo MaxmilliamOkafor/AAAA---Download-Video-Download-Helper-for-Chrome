@@ -140,6 +140,7 @@ h2 { font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em; margin-bottom
 .clip-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .clip-cell .who { font-weight: 650; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 .tag-auto { padding: 1px 6px; border-radius: 4px; background: var(--brand-soft); color: var(--brand-hover); font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; }
+.tag-hl { background: var(--warn-soft); color: var(--warn); }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .list-note { margin-top: -6px; }
 

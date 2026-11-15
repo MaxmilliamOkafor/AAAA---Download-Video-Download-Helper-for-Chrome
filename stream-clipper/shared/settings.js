@@ -60,7 +60,28 @@ const SCP_DEFAULT_SETTINGS = {
   driveEnabled: false,         // upload every clip to Google Drive
   driveClientId: "",           // the user's own Google OAuth client id
   driveFolderName: "StreamClips",
-  driveFolderPerStreamer: true
+  driveFolderPerStreamer: true,
+
+  // Highlights: chat bursts become their own short clips, automatically.
+  highlightEnabled: true,
+  highlightSensitivity: "medium", // low | medium | high
+  highlightPreRoll: 25,           // seconds before the burst (chat reacts late)
+  highlightPostRoll: 8,           // seconds after it
+  highlightMaxPerHour: 12,        // per stream; 0 = no cap
+
+  // Shorts engine: hand clips to a self-hosted OpenShorts or SupoClip, which
+  // reframes them to 9:16 with captions and hooks. The API key, when one is
+  // needed, is kept in chrome.storage.local, never in synced settings.
+  shortsEngine: "off",            // off | openshorts | supoclip
+  shortsEngineUrl: "http://localhost:8000",
+  shortsEngineScope: "highlights", // highlights | all
+  shortsClipLength: "auto",       // auto | short | medium | long
+  shortsRightsConfirmed: false    // the user's own attestation, required to send
+};
+
+const SCP_SHORTS_ENGINES = {
+  openshorts: { name: "OpenShorts", app: "http://localhost:5175", keyLabel: "Gemini API key (optional if the server has one)" },
+  supoclip: { name: "SupoClip", app: "http://localhost:3107", keyLabel: "SupoClip API key (sk_…)" }
 };
 
 const SCP_RESOLUTIONS = {
@@ -117,6 +138,17 @@ function scpNormalizeSettings(raw) {
   s.driveClientId = String(s.driveClientId || "").trim();
   s.driveFolderName = scpSanitizeFileComponent(s.driveFolderName || "StreamClips");
   s.driveFolderPerStreamer = s.driveFolderPerStreamer !== false;
+  s.highlightEnabled = s.highlightEnabled !== false;
+  if (!["low", "medium", "high"].includes(s.highlightSensitivity)) s.highlightSensitivity = "medium";
+  s.highlightPreRoll = clampNum(explicitNum(s.highlightPreRoll, 25), 0, 120);
+  s.highlightPostRoll = clampNum(explicitNum(s.highlightPostRoll, 8), 0, 60);
+  s.highlightMaxPerHour = clampNum(explicitNum(s.highlightMaxPerHour, 12), 0, 120);
+  if (!["off", "openshorts", "supoclip"].includes(s.shortsEngine)) s.shortsEngine = "off";
+  s.shortsEngineUrl = scpNormalizeBaseUrl(s.shortsEngineUrl) || SCP_DEFAULT_SETTINGS.shortsEngineUrl;
+  if (!["highlights", "all"].includes(s.shortsEngineScope)) s.shortsEngineScope = "highlights";
+  if (!["auto", "short", "medium", "long"].includes(s.shortsClipLength)) s.shortsClipLength = "auto";
+  s.shortsRightsConfirmed = s.shortsRightsConfirmed === true;
+
   // A clip has to go somewhere: with Drive off, the local copy is mandatory.
   s.saveLocally = s.saveLocally !== false || !s.driveEnabled;
   s.sourceHeightCap = [0, 720, 1080, 1440, 2160].includes(Number(s.sourceHeightCap))
@@ -266,6 +298,25 @@ function scpFormatBytes(bytes) {
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
+// "localhost:8000/" -> "http://localhost:8000". Empty for anything that is
+// not a plain http(s) origin plus optional path.
+function scpNormalizeBaseUrl(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+  // An explicit scheme must be http(s); "localhost:8000" has none (no "//").
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(text);
+  if (scheme && !/^https?$/i.test(scheme[1])) return "";
+  if (/^(javascript|data|file|chrome|chrome-extension):/i.test(text)) return "";
+  if (!scheme) text = "http://" + text;
+  try {
+    const u = new URL(text);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    return (u.origin + u.pathname).replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
 // True only for a page that is itself one live channel (used for automatic
 // monitoring, which must not fire on directories, VODs or hover previews).
 function scpIsLiveChannelPage(url) {
@@ -330,6 +381,8 @@ if (typeof globalThis !== "undefined") {
   Object.assign(globalThis, {
     SCP_DEFAULT_SETTINGS,
     SCP_RESOLUTIONS,
+    SCP_SHORTS_ENGINES,
+    scpNormalizeBaseUrl,
     scpNormalizeSettings,
     scpLoadSettings,
     scpSaveSettings,

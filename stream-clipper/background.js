@@ -481,7 +481,8 @@ async function handleClipReady(msg) {
   // msg: { tabId, url (blob), lengthSeconds, sizeBytes, extension, auto }
   const session = sessions.get(msg.tabId) || endedSessions.get(msg.tabId) || {};
   const settings = await scpLoadSettings();
-  const filename = scpBuildFileName(settings.fileNameTemplate, {
+  const isHighlight = msg.kind === "highlight";
+  let filename = scpBuildFileName(settings.fileNameTemplate, {
     site: session.site,
     streamer: session.streamer,
     title: session.title,
@@ -489,6 +490,16 @@ async function handleClipReady(msg) {
     extension: msg.extension,
     timestamp: Date.now()
   });
+  if (isHighlight) {
+    // Highlights get their own folder, and their score in the name, so the
+    // best moments of a session are one sorted listing away.
+    const parts = filename.split("/");
+    const base = parts.pop();
+    const dot = base.lastIndexOf(".");
+    // Plain text only: Chrome's downloads API rejects names with symbols such as ★.
+    const score = msg.highlight && msg.highlight.score ? ` (highlight ${msg.highlight.score})` : " (highlight)";
+    filename = [...parts, "Highlights", `${base.slice(0, dot)}${score}${base.slice(dot)}`].join("/");
+  }
 
   const drive = await scpDriveStatus();
   const wantDrive = settings.driveEnabled && drive.connected && drive.hasClientId;
@@ -496,8 +507,19 @@ async function handleClipReady(msg) {
   const wantLocal = settings.saveLocally || !wantDrive;
   const clipId = crypto.randomUUID();
 
+  // The shorts engine is an extra, never the only destination: a clip is
+  // always also saved locally or to Drive above.
+  const engineEligible = settings.shortsEngine !== "off" &&
+    (settings.shortsEngineScope === "all" || isHighlight);
+  const wantEngine = engineEligible && settings.shortsRightsConfirmed;
+
   await chrome.runtime
-    .sendMessage({ target: "offscreen", type: "hold-url", url: msg.url, holds: (wantLocal ? 1 : 0) + (wantDrive ? 1 : 0) })
+    .sendMessage({
+      target: "offscreen",
+      type: "hold-url",
+      url: msg.url,
+      holds: (wantLocal ? 1 : 0) + (wantDrive ? 1 : 0) + (wantEngine ? 1 : 0)
+    })
     .catch(() => {});
 
   await mutateHistory(list => {
@@ -510,6 +532,11 @@ async function handleClipReady(msg) {
       sizeBytes: msg.sizeBytes,
       adSecondsRemoved: msg.adSecondsRemoved || 0,
       auto: !!msg.auto,
+      kind: isHighlight ? "highlight" : msg.auto ? "auto" : "manual",
+      highlightScore: isHighlight && msg.highlight ? msg.highlight.score : null,
+      engine: wantEngine ? "sending" : engineEligible ? "failed" : "off",
+      engineName: settings.shortsEngine,
+      engineError: engineEligible && !wantEngine ? "Confirm you have the rights to the content in the dashboard first." : "",
       time: Date.now(),
       local: wantLocal ? "saving" : "off",
       drive: wantDrive ? "uploading" : settings.driveEnabled ? "failed" : "off",
@@ -539,16 +566,68 @@ async function handleClipReady(msg) {
       .catch(() => {});
   }
 
+  if (wantEngine) {
+    const { shortsEngineKey = "" } = await chrome.storage.local.get("shortsEngineKey");
+    await chrome.runtime
+      .sendMessage({
+        target: "offscreen",
+        type: "engine-upload",
+        url: msg.url,
+        clipId,
+        engine: settings.shortsEngine,
+        base: settings.shortsEngineUrl,
+        key: shortsEngineKey,
+        filename: filename.split("/").pop(),
+        clipLength: settings.shortsClipLength,
+        title: `${session.streamer || "Stream"}${isHighlight ? " highlight" : ""}`
+      })
+      .catch(() => {});
+  }
+
   // Automatic clips stay quiet unless the user asked to hear about them.
-  const shouldNotify = msg.auto ? settings.notifyOnAutoClip : settings.notifyOnClipSaved;
+  // A highlight is worth a notification when manual clips are.
+  const shouldNotify = isHighlight
+    ? settings.notifyOnAutoClip || settings.notifyOnClipSaved
+    : msg.auto ? settings.notifyOnAutoClip : settings.notifyOnClipSaved;
   if (shouldNotify) {
     const mb = (msg.sizeBytes / (1024 * 1024)).toFixed(1);
     notify(
       downloadId != null ? `clip-${downloadId}` : `clipd-${clipId}`,
-      msg.auto ? "Auto-clip saved" : "Clip saved",
+      isHighlight ? `Highlight saved${msg.highlight ? ` ★${msg.highlight.score}` : ""}` : msg.auto ? "Auto-clip saved" : "Clip saved",
       `${session.streamer || "Stream"} — ${scpFormatDuration(msg.lengthSeconds)} (${mb} MB)` +
-        (wantDrive ? " · uploading to Drive" : "")
+        (wantDrive ? " · uploading to Drive" : "") +
+        (wantEngine ? ` · sending to ${SCP_SHORTS_ENGINES[settings.shortsEngine].name}` : "")
     );
+  }
+}
+
+async function handleEngineDone(msg) {
+  if (msg.ok) {
+    await patchClip(msg.clipId, { engine: "sent", engineJobId: msg.jobId || "", engineError: "" });
+  } else {
+    await patchClip(msg.clipId, { engine: "failed", engineError: msg.error || "Could not send the clip." });
+    const settings = await scpLoadSettings();
+    if (settings.notifyOnCaptureError) {
+      const name = (SCP_SHORTS_ENGINES[msg.engine] || {}).name || "Shorts engine";
+      notify(`engine-${msg.clipId}`, `${name}: clip not sent`, msg.error || "Could not send the clip.");
+    }
+  }
+  await maybeCloseOffscreen();
+}
+
+// Reachability check from the dashboard. Both engines are FastAPI apps and
+// serve /docs; any HTTP answer at all means the address is right.
+async function testShortsEngine() {
+  const settings = await scpLoadSettings();
+  if (settings.shortsEngine === "off") return { ok: false, error: "Pick an engine first." };
+  const name = SCP_SHORTS_ENGINES[settings.shortsEngine].name;
+  try {
+    const res = await fetch(`${settings.shortsEngineUrl}/docs`, { method: "GET", cache: "no-store" });
+    return res.ok
+      ? { ok: true, message: `${name} is reachable at ${settings.shortsEngineUrl}.` }
+      : { ok: false, error: `${settings.shortsEngineUrl} answered HTTP ${res.status} — is that the ${name} backend (API port, usually 8000)?` };
+  } catch {
+    return { ok: false, error: `Nothing answered at ${settings.shortsEngineUrl}. Start ${name} (docker compose up -d) and check the address.` };
   }
 }
 
@@ -639,6 +718,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "drive-progress":
         await patchClip(msg.clipId, { driveProgress: msg.fraction });
         sendResponse({ ok: true });
+        break;
+      case "chat-signal": {
+        // From the chat reader on a stream page (or YouTube's chat frame).
+        // Only monitored streams are analysed; everything else is dropped.
+        const tabId = sender && sender.tab && sender.tab.id;
+        if (tabId != null && sessions.has(tabId)) {
+          const settings = await scpLoadSettings();
+          if (settings.highlightEnabled) {
+            await chrome.runtime
+              .sendMessage({ target: "offscreen", type: "chat-signal", tabId, samples: msg.samples, found: msg.found, site: msg.site })
+              .catch(() => {});
+          }
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+      case "engine-done":
+        await handleEngineDone(msg);
+        sendResponse({ ok: true });
+        break;
+      case "engine-test":
+        sendResponse(await testShortsEngine());
         break;
       case "drive-done":
         await handleDriveDone(msg);

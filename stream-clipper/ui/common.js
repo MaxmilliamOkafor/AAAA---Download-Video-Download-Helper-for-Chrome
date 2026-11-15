@@ -67,6 +67,16 @@ const ScpUI = (() => {
     }
   }
 
+  function engineStatus(clip) {
+    const name = clip.engineName === "supoclip" ? "SupoClip" : clip.engineName === "openshorts" ? "OpenShorts" : "Engine";
+    switch (clip.engine) {
+      case "sent": return { label: `In ${name}`, state: "ok" };
+      case "sending": return { label: "Sending…", state: "busy" };
+      case "failed": return { label: "Not sent", state: "error" };
+      default: return { label: "—", state: "" };
+    }
+  }
+
   function statusPill({ label, state }, title) {
     return el("span", { class: "status", dataset: { state }, title: title || "", text: label });
   }
@@ -76,5 +86,5 @@ const ScpUI = (() => {
     chrome.tabs.create({ url });
   }
 
-  return { send, el, toast, timeOfDay, dateTime, localStatus, driveStatus, statusPill, openDashboard };
+  return { send, el, toast, timeOfDay, dateTime, localStatus, driveStatus, engineStatus, statusPill, openDashboard };
 })();

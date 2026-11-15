@@ -24,6 +24,7 @@ function ScpStreamCards({ container, getSettings, onError, onChanged }) {
     <div class="session-meta"><span class="buffer-info"></span></div>
     <div class="note-row">
       <span class="note auto-note" data-tone="brand" hidden></span>
+      <span class="note hype-note" hidden></span>
       <span class="note ad-note" hidden></span>
     </div>
     <div class="buffer-bar" role="progressbar" aria-label="Buffer filled" aria-valuemin="0" aria-valuemax="100">
@@ -80,7 +81,7 @@ function ScpStreamCards({ container, getSettings, onError, onChanged }) {
         chip: q(".site-chip"), name: q(".session-name"), modeBadge: q(".mode-badge"),
         formatTag: q(".format-tag"), qualitySelect: q(".quality-select"), quality: q(".quality-line"),
         info: q(".buffer-info"), fill: q(".buffer-fill"), bar: q(".buffer-bar"),
-        autoNote: q(".auto-note"), adNote: q(".ad-note"), btnBox: q(".clip-buttons"),
+        autoNote: q(".auto-note"), hypeNote: q(".hype-note"), adNote: q(".ad-note"), btnBox: q(".clip-buttons"),
         customRow: q(".custom-row"), min: q(".custom-min"), sec: q(".custom-sec"), customBtn: q(".custom-clip")
       }
     };
@@ -260,6 +261,27 @@ function ScpStreamCards({ container, getSettings, onError, onChanged }) {
       els.autoNote.textContent = wait > 0 ? `⟳ Auto-clip in ${scpFormatDuration(wait)}` : "⟳ Auto-clip saving…";
     } else {
       els.autoNote.hidden = true;
+    }
+
+    // Highlights: is chat being read, how busy is it, what has it produced.
+    const hl = stats && stats.highlights;
+    if (!settings.highlightEnabled || !hl) {
+      els.hypeNote.hidden = true;
+    } else if (!hl.chatActive) {
+      els.hypeNote.hidden = false;
+      els.hypeNote.dataset.tone = "warn";
+      els.hypeNote.textContent = "💬 Chat not found — highlights off";
+      els.hypeNote.title = "Highlights come from live chat. Keep the chat panel open on the stream's page.";
+    } else {
+      els.hypeNote.hidden = false;
+      els.hypeNote.dataset.tone = hl.inBurst ? "warn" : hl.highlightCount ? "brand" : "";
+      const count = hl.highlightCount ? ` · ${hl.highlightCount} highlight${hl.highlightCount === 1 ? "" : "s"}` : "";
+      els.hypeNote.textContent = hl.inBurst
+        ? "🔥 Chat is exploding — clipping this"
+        : hl.warm
+          ? `🔥 ${hl.messagesPerMinute} msg/min${count}`
+          : `🔥 Learning chat's pace…${count}`;
+      els.hypeNote.title = "Highlights are saved automatically when chat bursts well above its normal pace.";
     }
 
     const adSeconds = stats ? stats.adSecondsExcluded || (stats.adSegmentsSkipped || 0) * 2 : 0;

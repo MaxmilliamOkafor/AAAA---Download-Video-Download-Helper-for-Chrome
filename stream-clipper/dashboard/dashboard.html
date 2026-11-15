@@ -67,7 +67,7 @@
       <div class="panel table-wrap">
         <table class="table" id="library-table">
           <thead>
-            <tr><th>Clip</th><th>Length</th><th>Size</th><th>Saved</th><th>Computer</th><th>Google Drive</th><th></th></tr>
+            <tr><th>Clip</th><th>Length</th><th>Size</th><th>Saved</th><th>Computer</th><th>Google Drive</th><th>Shorts engine</th><th></th></tr>
           </thead>
           <tbody id="library-body"></tbody>
         </table>
@@ -90,6 +90,98 @@
       </header>
 
       <div class="pipeline" id="pipeline" aria-label="Pipeline status"></div>
+
+      <div class="panel">
+        <div class="row-head">
+          <div>
+            <h2>Highlights from chat</h2>
+            <p class="desc">Watches each stream's live chat and saves the moment whenever chat bursts well above its own normal pace — reactions, emotes, shouting and “clip it” requests count most. Each highlight is its own short clip in a <code>Highlights</code> folder, with its score in the name. Chat is read on the stream's page; only per-second counts are used, never the text. Idea credited to OpenShorts, which uses what viewers clipped to find stream highlights.</p>
+          </div>
+          <label class="switch"><input type="checkbox" data-setting="highlightEnabled" data-kind="bool" aria-label="Enable highlights from chat" /><span class="track"></span></label>
+        </div>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Sensitivity</span>
+            <select class="input" data-setting="highlightSensitivity" data-kind="text">
+              <option value="low">Low — only the biggest moments</option>
+              <option value="medium">Medium — recommended</option>
+              <option value="high">High — more clips, occasional false alarm in small chats</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">At most, per stream per hour <em>(the best are kept)</em></span>
+            <select class="input" data-setting="highlightMaxPerHour" data-kind="number">
+              <option value="4">4</option><option value="8">8</option><option value="12">12</option><option value="20">20</option><option value="0">No limit</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Start this long before chat reacts</span>
+            <select class="input" data-setting="highlightPreRoll" data-kind="number">
+              <option value="10">10 seconds</option><option value="15">15 seconds</option><option value="25">25 seconds</option><option value="40">40 seconds</option><option value="60">60 seconds</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Keep this long after</span>
+            <select class="input" data-setting="highlightPostRoll" data-kind="number">
+              <option value="3">3 seconds</option><option value="8">8 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option>
+            </select>
+          </label>
+        </div>
+        <p class="callout">Chat reacts a few seconds after the moment itself, so a highlight opens well before the burst. Tested against simulated chat at four speeds: medium caught every injected highlight with under one false alarm in five hours of ordinary chat.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row-head">
+          <div>
+            <h2>Shorts engine</h2>
+            <p class="desc">Hands clips to an AI clipping engine you run yourself, which reframes them to 9:16 with face tracking, adds word-synced captions and hook titles, and picks the best cuts inside them. Both are open source and run on your own machine with Docker:
+              <a href="https://github.com/mutonby/openshorts" target="_blank" rel="noopener">OpenShorts</a> (MIT) or
+              <a href="https://github.com/FujiwaraChoki/supoclip" target="_blank" rel="noopener">SupoClip</a> (AGPL-3.0). StreamClip talks to them over their HTTP APIs; neither is bundled.</p>
+          </div>
+        </div>
+        <div class="fields">
+          <label class="field">
+            <span class="label">Engine</span>
+            <select class="input" data-setting="shortsEngine" data-kind="text">
+              <option value="off">Off</option>
+              <option value="openshorts">OpenShorts</option>
+              <option value="supoclip">SupoClip</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Backend address <em>(API, usually port 8000)</em></span>
+            <input class="input mono" type="text" data-setting="shortsEngineUrl" data-kind="text" placeholder="http://localhost:8000" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span class="label" id="engine-key-label">API key</span>
+            <input class="input mono" type="password" id="engine-key" autocomplete="off" spellcheck="false" placeholder="Stored on this computer only" />
+          </label>
+          <label class="field">
+            <span class="label">Send</span>
+            <select class="input" data-setting="shortsEngineScope" data-kind="text">
+              <option value="highlights">Highlights only (recommended)</option>
+              <option value="all">Every clip</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Shorts length</span>
+            <select class="input" data-setting="shortsClipLength" data-kind="text">
+              <option value="auto">Engine decides</option><option value="short">Short · 15–30s</option><option value="medium">Medium · 30–60s</option><option value="long">Long · 60–120s</option>
+            </select>
+          </label>
+          <label class="field check wide">
+            <input type="checkbox" data-setting="shortsRightsConfirmed" data-kind="bool" />
+            <span>I own, or have the streamer's permission to process and publish, the content I send. <em>(OpenShorts requires this confirmation with every upload; nothing is sent until you tick it.)</em></span>
+          </label>
+        </div>
+        <div class="drive-state">
+          <span id="engine-status" class="status"></span>
+          <span class="spacer"></span>
+          <button id="engine-test" class="btn btn-ghost" type="button">Test connection</button>
+          <a id="engine-open" class="btn btn-ghost" target="_blank" rel="noopener" hidden>Open engine ↗</a>
+        </div>
+        <p class="callout">Clips are always saved by StreamClip first; the engine is an extra. OpenShorts needs a Gemini key (here or in its own .env) or a local LLM; SupoClip needs an API key from its <em>Agents &amp; API</em> page plus its own transcription key.</p>
+      </div>
 
       <div class="panel">
         <div class="row-head">

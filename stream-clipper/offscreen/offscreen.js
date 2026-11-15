@@ -86,6 +86,138 @@ async function uploadClipToDrive({ url, clipId, name, folderPath }) {
 // Tries each candidate playlist in order (the master first, then the
 // rendition the player is polling) and keeps the first that works. A master
 // is preferred because it exposes every quality the stream offers.
+// ------------------------------------------------------------- highlights
+//
+// Chat activity arrives per second from the stream's page. Each stream gets
+// its own detector, so a big channel and a small one are judged against
+// their own normal pace. A detected burst becomes a clip of its own,
+// assembled once the post-roll has been recorded.
+
+const highlights = new Map(); // tabId -> highlight state
+
+function settingsFor(tabId) {
+  const buffer = sourceBuffers.get(tabId);
+  if (buffer) return buffer.settings;
+  const state = captures.get(tabId);
+  return state ? state.settings : null;
+}
+
+function highlightState(tabId, settings) {
+  let h = highlights.get(tabId);
+  if (!h || h.sensitivity !== settings.highlightSensitivity) {
+    h = {
+      detector: new ScpHypeDetector({ sensitivity: settings.highlightSensitivity }),
+      sensitivity: settings.highlightSensitivity,
+      saved: [],            // events turned into clips, for the hourly cap
+      pending: new Map(),   // id -> { timer, run } for clips waiting on post-roll
+      chatFound: false,
+      site: "",
+      recent: [],           // last 60 samples, for the messages-per-minute readout
+      lastSampleAt: 0
+    };
+    highlights.set(tabId, h);
+  }
+  return h;
+}
+
+function onChatSignal({ tabId, samples, found, site }) {
+  const settings = settingsFor(tabId);
+  if (!settings || !settings.highlightEnabled) return;
+  const h = highlightState(tabId, settings);
+  h.chatFound = !!found;
+  h.site = site || h.site;
+  for (const sample of samples || []) {
+    h.recent.push(sample);
+    if (h.recent.length > 60) h.recent.shift();
+    h.lastSampleAt = Date.now();
+    const event = h.detector.push(sample);
+    if (event) acceptHighlight(tabId, h, event, settings);
+  }
+}
+
+function acceptHighlight(tabId, h, event, settings) {
+  if (!scpAllowHighlight(h.saved, event, settings.highlightMaxPerHour)) return;
+  h.saved.push(event);
+  if (h.saved.length > 200) h.saved.shift();
+  const window = scpHighlightWindow(event, {
+    preRoll: settings.highlightPreRoll,
+    postRoll: settings.highlightPostRoll
+  });
+  const id = `${tabId}:${event.start}`;
+  const run = () => {
+    h.pending.delete(id);
+    saveHighlight(tabId, window, event).catch(e => console.warn("StreamClip: highlight not saved:", e.message));
+  };
+  // Wait until the post-roll exists (plus a segment's grace for source mode).
+  const wait = Math.max(0, window.until - Date.now()) + 2500;
+  h.pending.set(id, { timer: setTimeout(run, wait), run });
+}
+
+async function saveHighlight(tabId, window, event) {
+  const meta = { kind: "highlight", highlight: { score: event.score, clipCalls: event.clipCalls, peakRate: Math.round(event.peakRate * 10) / 10 } };
+  const buffer = sourceBuffers.get(tabId);
+  if (buffer) {
+    const clip = await buffer.makeClip({ since: window.since, until: window.until });
+    publishClip(tabId, clip.blob, { lengthSeconds: clip.lengthSeconds, extension: clip.extension, auto: true, ...meta });
+    return;
+  }
+  if (captures.has(tabId)) {
+    makeClip(tabId, { since: window.since, until: window.until, meta });
+  }
+}
+
+// Capture is ending: close any burst still in progress and save every
+// highlight that was waiting on its post-roll, with whatever exists now.
+async function flushHighlights(tabId) {
+  const h = highlights.get(tabId);
+  if (!h) return;
+  const settings = settingsFor(tabId);
+  const open = h.detector.flush(Math.floor(Date.now() / 1000));
+  if (open && settings) acceptHighlight(tabId, h, open, settings);
+  for (const { timer, run } of [...h.pending.values()]) {
+    clearTimeout(timer);
+    try { await run(); } catch { /* best effort */ }
+  }
+  highlights.delete(tabId);
+}
+
+function highlightStats(tabId) {
+  const h = highlights.get(tabId);
+  if (!h) return { chatFound: false, chatActive: false };
+  const fresh = Date.now() - h.lastSampleAt < 15000;
+  const snap = h.detector.snapshot();
+  return {
+    chatFound: h.chatFound,
+    chatActive: fresh,
+    chatSite: h.site,
+    messagesPerMinute: Math.round(h.recent.reduce((a, s) => a + (s.messages || 0), 0) * 60 / Math.max(1, h.recent.length)),
+    warm: snap.warm,
+    inBurst: snap.inBurst,
+    highlightCount: h.saved.length,
+    highlightsPending: h.pending.size
+  };
+}
+
+// ---------------------------------------------------------- shorts engine
+
+async function sendClipToEngine({ url, clipId, engine, base, key, filename, clipLength, title }) {
+  const clip = clips.get(url);
+  if (!clip) {
+    chrome.runtime.sendMessage({ target: "background", type: "engine-done", clipId, ok: false, error: "Clip expired before it could be sent." }).catch(() => {});
+    return;
+  }
+  activeUploads += 1;
+  try {
+    const out = await scpSendToShortsEngine({ engine, base, key, blob: clip.blob, filename, clipLength, title });
+    chrome.runtime.sendMessage({ target: "background", type: "engine-done", clipId, ok: true, ...out }).catch(() => {});
+  } catch (e) {
+    chrome.runtime.sendMessage({ target: "background", type: "engine-done", clipId, ok: false, engine, error: e.message || String(e) }).catch(() => {});
+  } finally {
+    activeUploads -= 1;
+    releaseClip(url);
+  }
+}
+
 async function startSourceCapture({ tabId, playlistUrls, playlistUrl, settings }) {
   if (sourceBuffers.has(tabId)) throw new Error("Already capturing this tab.");
   const candidates = (playlistUrls && playlistUrls.length ? playlistUrls : [playlistUrl]).filter(Boolean);
@@ -99,6 +231,7 @@ async function startSourceCapture({ tabId, playlistUrls, playlistUrl, settings }
       onError: async message => {
         // Runs before the buffer is cleared: with automation on, save whatever
         // has not been delivered yet so the end of a stream is never lost.
+        await flushHighlights(tabId).catch(() => {});
         if (buffer.settings.autoClipEnabled) {
           await deliverSourceClip(tabId, buffer, { auto: true }).catch(() => {});
         }
@@ -435,7 +568,7 @@ function pruneBuffer(state) {
 
 // Requests a clip. With post-roll, assembly is deferred so the aftermath of
 // the moment is included; the clip-ready message fires when it's done.
-function makeClip(tabId, { durationSeconds, postRollSeconds = 0, auto = false }) {
+function makeClip(tabId, { durationSeconds, postRollSeconds = 0, auto = false, since = null, until = null, meta = null }) {
   const state = captures.get(tabId);
   if (!state) throw new Error("Not capturing this tab.");
   if (!state.headerChunk || state.chunks.length === 0) {
@@ -446,13 +579,15 @@ function makeClip(tabId, { durationSeconds, postRollSeconds = 0, auto = false })
     requestedAt: Date.now(),
     durationSeconds,
     postRollSeconds: auto ? 0 : postRollSeconds || 0,
-    auto,
-    // Automatic clips take the exact window since the previous one.
-    since: auto ? state.autoCursor : null,
-    until: auto ? Date.now() : null,
+    auto: auto || since != null,
+    meta,
+    // Automatic clips take the exact window since the previous one; a
+    // highlight brings its own window.
+    since: since != null ? since : auto ? state.autoCursor : null,
+    until: until != null ? until : auto ? Date.now() : null,
     timer: null
   };
-  if (auto) state.autoCursor = pending.until;
+  if (auto && since == null) state.autoCursor = pending.until;
   state.pendingClips.add(pending);
 
   if (pending.postRollSeconds > 0) {
@@ -508,7 +643,8 @@ async function assemblePendingClip(state, pending) {
     lengthSeconds: Math.round(selected.length * (CHUNK_MS / 1000)),
     adSecondsRemoved: Math.round(adChunksDropped * (CHUNK_MS / 1000)),
     extension: "webm",
-    auto: pending.auto
+    auto: pending.auto,
+    ...(pending.meta || {})
   });
 }
 
@@ -581,6 +717,7 @@ async function stopCapture(tabId, { flushAuto = false } = {}) {
 async function endCapture(tabId, error) {
   const state = captures.get(tabId);
   if (!state || state.stopping) return;
+  await flushHighlights(tabId).catch(() => {});
   await stopCapture(tabId, { flushAuto: !!state.settings.autoClipEnabled });
   chrome.runtime
     .sendMessage({ target: "background", type: "capture-ended", tabId, error })
@@ -603,6 +740,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "stop-capture": {
+          await flushHighlights(msg.tabId);
           const buffer = sourceBuffers.get(msg.tabId);
           if (buffer) {
             if (msg.flushAuto) {
@@ -629,7 +767,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "get-stats": {
           const buffer = sourceBuffers.get(msg.tabId);
-          sendResponse({ ok: true, stats: buffer ? buffer.stats() : getStats(msg.tabId) });
+          const base = buffer ? buffer.stats() : getStats(msg.tabId);
+          sendResponse({ ok: true, stats: { ...base, highlights: highlightStats(msg.tabId) } });
           break;
         }
         case "video-rect": {
@@ -694,6 +833,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         case "release-url":
           releaseClip(msg.url);
+          sendResponse({ ok: true });
+          break;
+        case "chat-signal":
+          onChatSignal(msg);
+          sendResponse({ ok: true });
+          break;
+        case "engine-upload":
+          sendClipToEngine(msg); // long-running; reports via engine-done
           sendResponse({ ok: true });
           break;
         case "drive-upload":

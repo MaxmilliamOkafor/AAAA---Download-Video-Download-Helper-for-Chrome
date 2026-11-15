@@ -1,7 +1,7 @@
 // StreamClip Pro — dashboard: live streams, the clip library, automation and
 // every setting, in one page. Settings save as you change them.
 
-const { send, el, toast, dateTime, localStatus, driveStatus, statusPill } = ScpUI;
+const { send, el, toast, dateTime, localStatus, driveStatus, engineStatus, statusPill } = ScpUI;
 const $ = sel => document.querySelector(sel);
 const $$ = sel => [...document.querySelectorAll(sel)];
 
@@ -111,6 +111,7 @@ async function saveSetting(input) {
   toast("Saved");
   renderEstimates();
   renderPipeline();
+  renderEngine();
   if (key.startsWith("drive")) refreshDrive();
 }
 
@@ -206,11 +207,12 @@ function renderLibrary() {
   const totalBytes = clipHistory.reduce((a, c) => a + (c.sizeBytes || 0), 0);
   const uploaded = clipHistory.filter(c => c.drive === "uploaded").length;
   const uploading = clipHistory.filter(c => c.drive === "uploading").length;
-  const failed = clipHistory.filter(c => c.drive === "failed" || c.local === "failed").length;
+  const failed = clipHistory.filter(c => c.drive === "failed" || c.local === "failed" || c.engine === "failed").length;
+  const highlightCount = clipHistory.filter(c => c.kind === "highlight").length;
   const tiles = $("#library-tiles");
   tiles.textContent = "";
   tiles.append(
-    tile("Clips", String(clipHistory.length), `${clipHistory.filter(c => c.auto).length} automatic`),
+    tile("Clips", String(clipHistory.length), `${highlightCount} highlight${highlightCount === 1 ? "" : "s"} · ${clipHistory.filter(c => c.auto && c.kind !== "highlight").length} segments`),
     tile("Footage", scpFormatDuration(totalSeconds), scpFormatBytes(totalBytes)),
     tile("In Google Drive", String(uploaded), uploading ? `${uploading} uploading now` : "none in progress"),
     tile("Needs attention", String(failed), failed ? "see the rows marked failed" : "all deliveries succeeded")
@@ -235,7 +237,9 @@ function renderLibrary() {
       el("td", {}, el("div", { class: "clip-cell" }, [
         el("span", { class: "site-chip", dataset: { site: clip.site }, text: clip.site }),
         el("span", { class: "who", text: clip.streamer, title: clip.filename || "" }),
-        clip.auto ? el("span", { class: "tag-auto", text: "AUTO", title: "Saved by auto-clip" }) : null
+        clip.kind === "highlight"
+          ? el("span", { class: "tag-auto tag-hl", text: clip.highlightScore ? `★ ${clip.highlightScore}` : "★", title: "Highlight found in chat (score out of 100)" })
+          : clip.auto ? el("span", { class: "tag-auto", text: "AUTO", title: "Saved by auto-clip" }) : null
       ])),
       el("td", { text: scpFormatDuration(clip.lengthSeconds) +
         (clip.adSecondsRemoved > 0 ? ` (−${scpFormatDuration(clip.adSecondsRemoved)} ads)` : "") }),
@@ -243,6 +247,8 @@ function renderLibrary() {
       el("td", { text: dateTime(clip.time) }),
       el("td", {}, statusPill(localStatus(clip), clip.localError || "")),
       el("td", {}, statusPill(driveStatus(clip), clip.driveError || "")),
+      el("td", {}, statusPill(engineStatus(clip),
+        clip.engineError || (clip.engineJobId ? `Job ${clip.engineJobId}` : ""))),
       el("td", {}, actions)
     ]));
   }
@@ -310,15 +316,19 @@ function renderPipeline() {
       capturing ? `${capturing} stream${capturing > 1 ? "s" : ""} buffering` : "No streams yet",
       capturing ? { label: "Live", state: "ok" } : { label: "Idle", state: "" }),
     stage("2 · Clip",
-      settings.autoClipEnabled ? `Every ${scpFormatDuration(scpAutoClipSeconds(settings))}` : "Manual only",
-      settings.autoClipEnabled ? { label: "Automatic", state: "ok" } : { label: "On demand", state: "" }),
+      [settings.autoClipEnabled ? `Every ${scpFormatDuration(scpAutoClipSeconds(settings))}` : null,
+        settings.highlightEnabled ? "highlights from chat" : null].filter(Boolean).join(" + ") || "Manual only",
+      settings.autoClipEnabled || settings.highlightEnabled ? { label: "Automatic", state: "ok" } : { label: "On demand", state: "" }),
     stage("3 · Convert",
       settings.outputFormat === "original" ? "Original container" : "MP4, no re-encode",
       settings.outputFormat === "original" ? { label: ".ts", state: "warn" } : { label: "Upload-ready", state: "ok" }),
     stage("4 · Deliver",
-      [settings.saveLocally ? "This computer" : null, driveOn ? "Google Drive" : null].filter(Boolean).join(" + "),
+      [settings.saveLocally ? "This computer" : null, driveOn ? "Google Drive" : null,
+        settings.shortsEngine !== "off" ? SCP_SHORTS_ENGINES[settings.shortsEngine].name : null].filter(Boolean).join(" + "),
       driveOn && !driveReady
         ? { label: "Drive not connected", state: "warn" }
+        : settings.shortsEngine !== "off" && !settings.shortsRightsConfirmed
+          ? { label: "Engine needs your confirmation", state: "warn" }
         : uploading
           ? { label: `${uploading} uploading`, state: "busy" }
           : { label: "Ready", state: "ok" })
@@ -333,10 +343,35 @@ function renderPipeline() {
   const line = (label, pill) => el("div", { class: "line" }, [el("span", { text: label }), statusPill(pill)]);
   mini.append(
     line("Auto-clip", settings.autoClipEnabled ? { label: "On", state: "ok" } : { label: "Off", state: "" }),
+    line("Highlights", settings.highlightEnabled ? { label: "On", state: "ok" } : { label: "Off", state: "" }),
     line("Drive", !driveOn ? { label: "Off", state: "" }
       : driveReady ? { label: "On", state: "ok" } : { label: "Connect", state: "warn" }),
     line("Format", { label: settings.outputFormat === "original" ? "TS" : "MP4", state: "" })
   );
+}
+
+// ------------------------------------------------------------ shorts engine
+
+async function renderEngine() {
+  const engine = SCP_SHORTS_ENGINES[settings.shortsEngine];
+  $("#engine-key-label").textContent = engine ? engine.keyLabel : "API key";
+  const open = $("#engine-open");
+  open.hidden = !engine;
+  if (engine) {
+    open.href = engine.app;
+    open.textContent = `Open ${engine.name} ↗`;
+  }
+  const pill = $("#engine-status");
+  if (!engine) {
+    pill.dataset.state = "";
+    pill.textContent = "Off";
+  } else if (!settings.shortsRightsConfirmed) {
+    pill.dataset.state = "warn";
+    pill.textContent = "Waiting for your rights confirmation";
+  } else {
+    pill.dataset.state = "ok";
+    pill.textContent = `Sending ${settings.shortsEngineScope === "all" ? "every clip" : "highlights"} to ${engine.name}`;
+  }
 }
 
 // --------------------------------------------------------------------- init
@@ -407,11 +442,31 @@ async function init() {
       settings = scpNormalizeSettings(changes.settings.newValue);
       fillSettings();
       renderPipeline();
+      renderEngine();
     }
+  });
+
+  // The engine key is a secret: device-local storage only, never synced.
+  const { shortsEngineKey = "" } = await chrome.storage.local.get("shortsEngineKey");
+  $("#engine-key").value = shortsEngineKey;
+  $("#engine-key").addEventListener("change", async ev => {
+    await chrome.storage.local.set({ shortsEngineKey: ev.target.value.trim() });
+    toast(ev.target.value.trim() ? "Key saved on this computer" : "Key removed");
+  });
+  $("#engine-test").addEventListener("click", async () => {
+    const button = $("#engine-test");
+    button.disabled = true;
+    button.textContent = "Testing…";
+    const res = await send({ type: "engine-test" });
+    button.disabled = false;
+    button.textContent = "Test connection";
+    if (res && res.ok) toast(res.message);
+    else showError((res && res.error) || "Test failed.");
   });
 
   window.addEventListener("hashchange", route);
   fillSettings();
+  renderEngine();
   route();
   await Promise.all([loadHistory(), refreshDrive(), refreshLive()]);
   setInterval(refreshLive, 2000);

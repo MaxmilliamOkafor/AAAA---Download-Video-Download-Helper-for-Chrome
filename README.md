@@ -6,7 +6,9 @@ A Chrome extension (Manifest V3) that turns live streams on Twitch, Kick and
 YouTube into upload-ready MP4 files hands-free: it starts buffering when a
 live channel plays, saves the stream as back-to-back segments at source
 quality with ads left out, and delivers them to your computer and optionally
-to Google Drive. Manual "save the last N seconds" clipping works alongside.
+to Google Drive. It also clips the moments live chat reacts to as separate
+highlights and can hand them to a self-hosted OpenShorts or SupoClip to become
+captioned 9:16 shorts. Manual "save the last N seconds" clipping works alongside.
 See [`stream-clipper/README.md`](stream-clipper/README.md) for install, usage,
 architecture and test instructions.
 
